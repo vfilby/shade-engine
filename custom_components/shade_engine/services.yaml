@@ -1,0 +1,53 @@
+hold:
+  name: Hold
+  description: >-
+    Start (or restart) a manual hold on a zone. While a hold is active the
+    engine issues no commands for that zone's covers.
+  fields:
+    zone:
+      name: Zone
+      description: Zone id from the shade_engine configuration.
+      required: true
+      example: kitchen
+      selector:
+        text:
+    duration:
+      name: Duration
+      description: Hold length in seconds. Defaults to the zone's hold_duration.
+      required: false
+      example: 1800
+      selector:
+        number:
+          min: 60
+          max: 86400
+          unit_of_measurement: seconds
+          mode: box
+
+release:
+  name: Release
+  description: >-
+    Clear a zone's hold and immediately reconcile its covers to the current
+    mode's target. Use this in automations that must win over a manual move
+    (for example a privacy close at dusk).
+  fields:
+    zone:
+      name: Zone
+      description: Zone id from the shade_engine configuration.
+      required: true
+      example: kitchen
+      selector:
+        text:
+
+reconcile:
+  name: Reconcile
+  description: >-
+    Immediately evaluate and command covers toward the current target,
+    bypassing rate limiting (but not holds). Without a zone, reconciles all.
+  fields:
+    zone:
+      name: Zone
+      description: Zone id to reconcile. Omit for all zones.
+      required: false
+      example: kitchen
+      selector:
+        text:

@@ -1,0 +1,13 @@
+{
+  "domain": "shade_engine",
+  "name": "Shade Engine",
+  "codeowners": ["@vfilby"],
+  "config_flow": false,
+  "dependencies": ["sun"],
+  "documentation": "https://github.com/vfilby/shade-engine",
+  "integration_type": "hub",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/vfilby/shade-engine/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
