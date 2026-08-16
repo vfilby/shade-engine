@@ -41,8 +41,11 @@ calls `super()`).
 Services: `shade_engine.hold`, `.release` (for automations that must beat a
 manual move, e.g. night close), `.reconcile`.
 
-Config is **YAML-only** (`shade_engine: zones:` in configuration.yaml) — a
-deliberate choice so geometry lives in git; no config flow.
+Config is **YAML-only** (`shade_engine: zones:` in configuration.yaml).
+There is a config flow, but it is **import-only** (`async_step_import`): it
+exists solely to create the single data-less config entry that lets each
+zone show up as a device on the integration page. The UI "add integration"
+path aborts with `yaml_only`. Removing the YAML removes the entry.
 
 ## State of the repo
 

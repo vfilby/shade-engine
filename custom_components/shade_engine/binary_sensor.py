@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, signal_zone_update
+from .entity import zone_device_info
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     engine = hass.data[DOMAIN]
     entities: list[BinarySensorEntity] = []
@@ -28,9 +28,11 @@ async def async_setup_platform(
 
 class _ZoneBinarySensor(BinarySensorEntity):
     _attr_should_poll = False
+    _attr_has_entity_name = True
 
     def __init__(self, zone) -> None:
         self._zone = zone
+        self._attr_device_info = zone_device_info(zone)
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -54,7 +56,7 @@ class SunInWindowSensor(_ZoneBinarySensor):
     def __init__(self, zone) -> None:
         super().__init__(zone)
         self._attr_unique_id = f"{DOMAIN}_{zone.zone_id}_sun_in_window"
-        self._attr_name = f"{zone.name} sun in window"
+        self._attr_name = "Sun in window"
 
     @property
     def is_on(self) -> bool:
@@ -70,7 +72,7 @@ class HoldActiveSensor(_ZoneBinarySensor):
         super().__init__(zone)
         self._engine = engine
         self._attr_unique_id = f"{DOMAIN}_{zone.zone_id}_hold"
-        self._attr_name = f"{zone.name} shade hold"
+        self._attr_name = "Shade hold"
 
     @property
     def is_on(self) -> bool:
