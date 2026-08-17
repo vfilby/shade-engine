@@ -69,6 +69,7 @@ class GlarePositionSensor(_ZoneSensor):
             "sun_in_window": self._zone.glare.sun_in_window,
             "gamma": round(self._zone.glare.gamma, 1),
             "profile_angle": round(self._zone.glare.profile_angle, 1),
+            "constraint": self._zone.glare.constraint,
         }
 
 

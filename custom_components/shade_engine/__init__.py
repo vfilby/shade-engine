@@ -11,6 +11,7 @@ Three layers:
 from __future__ import annotations
 
 import logging
+import math
 
 import voluptuous as vol
 
@@ -32,7 +33,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 from datetime import timedelta
 
-from .calculator import GlareResult, WindowGeometry, glare
+from .calculator import EyeZone, GlareResult, Reflector, WindowGeometry, glare
 from .const import (
     ATTR_DURATION,
     ATTR_ZONE,
@@ -40,8 +41,11 @@ from .const import (
     CONF_COVERS,
     CONF_DEADBAND,
     CONF_DEFAULT_MODE,
+    CONF_DEPTH,
+    CONF_EYE_ZONE,
     CONF_FOV_LEFT,
     CONF_FOV_RIGHT,
+    CONF_FROM,
     CONF_HEIGHT,
     CONF_HOLD_DURATION,
     CONF_MAX,
@@ -52,7 +56,10 @@ from .const import (
     CONF_MOTION,
     CONF_NAME,
     CONF_PROTECT_DEPTH,
+    CONF_REFLECTORS,
     CONF_SETTLE,
+    CONF_SILL_HEIGHT,
+    CONF_TO,
     CONF_WINDOW,
     CONF_ZONES,
     DOMAIN,
@@ -101,21 +108,77 @@ def _mode_target(value):
     raise vol.Invalid("mode target must be a position, 'glare', or a mapping")
 
 
-WINDOW_SCHEMA = vol.Schema(
+def _span(value):
+    """Validate a [low, high] pair of non-negative meters."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise vol.Invalid("expected a two-element list: [low, high]")
+    low, high = (vol.Coerce(float)(v) for v in value)
+    if low < 0:
+        raise vol.Invalid("values must be non-negative")
+    if low >= high:
+        raise vol.Invalid("first value must be less than the second")
+    return (low, high)
+
+
+EYE_ZONE_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_AZIMUTH): vol.All(vol.Coerce(float), vol.Range(0, 360)),
-        vol.Optional(CONF_FOV_LEFT, default=90.0): vol.All(
-            vol.Coerce(float), vol.Range(0, 180)
-        ),
-        vol.Optional(CONF_FOV_RIGHT, default=90.0): vol.All(
-            vol.Coerce(float), vol.Range(0, 180)
-        ),
-        vol.Required(CONF_HEIGHT): vol.All(vol.Coerce(float), vol.Range(min=0.05)),
-        vol.Required(CONF_PROTECT_DEPTH): vol.All(
+        vol.Required(CONF_HEIGHT): _span,
+        vol.Required(CONF_DEPTH): _span,
+    }
+)
+
+REFLECTOR_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_HEIGHT, default=0.0): vol.All(
             vol.Coerce(float), vol.Range(min=0.0)
         ),
-        vol.Optional(CONF_MIN_ELEVATION, default=0.0): vol.Coerce(float),
+        vol.Optional(CONF_FROM, default=0.0): vol.All(
+            vol.Coerce(float), vol.Range(min=0.0)
+        ),
+        vol.Optional(CONF_TO): vol.All(vol.Coerce(float), vol.Range(min=0.0)),
     }
+)
+
+
+def _validate_window(win: dict) -> dict:
+    """Cross-field rules the per-key schemas can't express."""
+    if CONF_PROTECT_DEPTH not in win and CONF_EYE_ZONE not in win:
+        raise vol.Invalid("window needs protect_depth or eye_zone")
+    if win[CONF_REFLECTORS] and CONF_EYE_ZONE not in win:
+        raise vol.Invalid("reflectors require an eye_zone to protect")
+    for ref in win[CONF_REFLECTORS]:
+        if CONF_TO in ref and ref[CONF_TO] <= ref[CONF_FROM]:
+            raise vol.Invalid("reflector 'to' must be greater than 'from'")
+        if ref[CONF_HEIGHT] >= win[CONF_EYE_ZONE][CONF_HEIGHT][0]:
+            raise vol.Invalid("reflector must sit below the eye_zone")
+    return win
+
+
+WINDOW_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required(CONF_AZIMUTH): vol.All(vol.Coerce(float), vol.Range(0, 360)),
+            vol.Optional(CONF_FOV_LEFT, default=90.0): vol.All(
+                vol.Coerce(float), vol.Range(0, 180)
+            ),
+            vol.Optional(CONF_FOV_RIGHT, default=90.0): vol.All(
+                vol.Coerce(float), vol.Range(0, 180)
+            ),
+            vol.Required(CONF_HEIGHT): vol.All(vol.Coerce(float), vol.Range(min=0.05)),
+            vol.Optional(CONF_PROTECT_DEPTH): vol.All(
+                vol.Coerce(float), vol.Range(min=0.0)
+            ),
+            vol.Optional(CONF_MIN_ELEVATION, default=0.0): vol.Coerce(float),
+            vol.Optional(CONF_SILL_HEIGHT, default=0.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0.0)
+            ),
+            vol.Optional(CONF_EYE_ZONE): EYE_ZONE_SCHEMA,
+            vol.Optional(CONF_REFLECTORS, default=[]): vol.All(
+                cv.ensure_list, [REFLECTOR_SCHEMA]
+            ),
+        }
+    ),
+    _validate_window,
 )
 
 MOTION_SCHEMA = vol.Schema(
@@ -153,13 +216,33 @@ class Zone:
         self.zone_id = zone_id
         self.name: str = conf.get(CONF_NAME) or zone_id.replace("_", " ").title()
         win = conf[CONF_WINDOW]
+        eye = win.get(CONF_EYE_ZONE)
         self.geometry = WindowGeometry(
             azimuth=win[CONF_AZIMUTH],
             fov_left=win[CONF_FOV_LEFT],
             fov_right=win[CONF_FOV_RIGHT],
             height=win[CONF_HEIGHT],
-            protect_depth=win[CONF_PROTECT_DEPTH],
+            protect_depth=win.get(CONF_PROTECT_DEPTH, 0.0),
             min_elevation=win[CONF_MIN_ELEVATION],
+            sill_height=win[CONF_SILL_HEIGHT],
+            eye_zone=(
+                EyeZone(
+                    low=eye[CONF_HEIGHT][0],
+                    high=eye[CONF_HEIGHT][1],
+                    near=eye[CONF_DEPTH][0],
+                    far=eye[CONF_DEPTH][1],
+                )
+                if eye
+                else None
+            ),
+            reflectors=tuple(
+                Reflector(
+                    height=ref[CONF_HEIGHT],
+                    start=ref[CONF_FROM],
+                    end=ref.get(CONF_TO, math.inf),
+                )
+                for ref in win[CONF_REFLECTORS]
+            ),
         )
         modes: dict[str, ModeTarget] = conf[CONF_MODES]
         default_mode = conf.get(CONF_DEFAULT_MODE) or next(iter(modes))

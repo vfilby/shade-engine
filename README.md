@@ -81,6 +81,48 @@ names are yours; each maps to either a constant position (0–100), the string
 `glare` (pure calculator passthrough), or a mapping with `min`/`max` clamps
 applied to the calculator value.
 
+### Eye zone & reflected glare
+
+`protect_depth` protects a strip of floor. If your actual problem is *eyes* —
+including sun that bounces off a shiny floor or countertop and up into them —
+replace it with an `eye_zone` and optional `reflectors`:
+
+```yaml
+      window:
+        azimuth: 268
+        height: 0.74
+        sill_height: 0.9      # meters from floor to the bottom of the glass
+        eye_zone:
+          height: [0.8, 1.4]  # meters above the floor to keep sun out of
+          depth: [2.0, 4.0]   # meters from the window where eyes live
+        reflectors:
+          - height: 0.0       # the floor
+          - height: 0.75      # a countertop...
+            from: 0.0         # ...spanning this range of distance
+            to: 0.6           #    from the window (omit "to" for unbounded)
+```
+
+All geometry is solved in the vertical plane along the sun's azimuth. Direct
+glare is excluded when the steepest admitted ray passes below the eye zone
+before reaching it. Each reflector adds one more constraint by mirror
+symmetry: a bounce off a surface at height *r* into the zone is a straight
+ray into the zone's reflection below that surface. The published position is
+the highest one satisfying every constraint — which is naturally
+**non-monotonic** over a day: high sun can force the shade down (floor bounce
+climbs into eyes), mid-descent can open up (bounces fall short of the zone),
+low sun closes again (direct rays at eye height).
+
+Notes:
+
+- `protect_depth` is exactly `eye_zone: {height: [0, x], depth: [d, inf]}` —
+  existing configs behave identically. Provide one of the two.
+- Reflectors assume worst-case specular (mirror) bounce and full window
+  width. That over-shades rather than under-shades; if a reflector closes
+  the shade at hours nobody experiences glare, narrow its `from`/`to` span
+  or remove it.
+- `reflectors` require an `eye_zone`, and each reflector must sit below the
+  zone's lower height.
+
 ## Entities (per zone)
 
 Each zone appears as a **device** under Settings → Devices & Services →
@@ -92,7 +134,7 @@ disabled.)
 | Entity | Meaning |
 |---|---|
 | `select.<zone>_shade_mode` | current mode — **the only thing policy writes** |
-| `sensor.<zone>_glare_position` | calculator output; attrs: `gamma`, `profile_angle`, `sun_in_window` |
+| `sensor.<zone>_glare_position` | calculator output; attrs: `gamma`, `profile_angle`, `sun_in_window`, `constraint` (`direct` / `reflected` / `none` — what bound the position) |
 | `sensor.<zone>_shade_target` | what the actuator wants; attrs: `mode`, `last_decision` (`command` / `in_sync` / `rate_limited` / `hold_active`), `hold_until`, `last_command` |
 | `binary_sensor.<zone>_sun_in_window` | direct sun geometrically possible now |
 | `binary_sensor.<zone>_shade_hold` | a human moved a cover; engine is standing down |
@@ -181,7 +223,9 @@ Run in shadow mode first: configure zones, restart, and graph
 `sensor.<zone>_glare_position` against the sun for a couple of sunny days
 **before** pointing `covers` at anything real (or set every mode to a
 constant while you watch). Tune `protect_depth` until the curve drops when
-glare actually reaches the spot you care about.
+glare actually reaches the spot you care about. With an `eye_zone`, watch the
+`constraint` attribute too: `reflected` at hours when nothing actually
+bounces into your eyes means a reflector span is too generous.
 
 ## Development
 
