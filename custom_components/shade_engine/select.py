@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from .const import DOMAIN, signal_zone_update
+from .entity import zone_device_info
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     engine = hass.data[DOMAIN]
     async_add_entities(
@@ -28,14 +28,16 @@ class ShadeModeSelect(SelectEntity, RestoreEntity):
     """Current mode for one zone. Automations write this; nothing else."""
 
     _attr_should_poll = False
+    _attr_has_entity_name = True
     _attr_icon = "mdi:blinds-horizontal"
 
     def __init__(self, engine, zone) -> None:
         self._engine = engine
         self._zone = zone
         self._attr_unique_id = f"{DOMAIN}_{zone.zone_id}_mode"
-        self._attr_name = f"{zone.name} shade mode"
+        self._attr_name = "Shade mode"
         self._attr_options = list(zone.core.modes)
+        self._attr_device_info = zone_device_info(zone)
 
     @property
     def current_option(self) -> str:

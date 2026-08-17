@@ -72,6 +72,12 @@ applied to the calculator value.
 
 ## Entities (per zone)
 
+Each zone appears as a **device** under Settings → Devices & Services →
+Shade Engine, grouping all of its entities in one place. (The config entry
+behind that page is created automatically from the YAML — configuration is
+still YAML-only, and the UI "add integration" flow is intentionally
+disabled.)
+
 | Entity | Meaning |
 |---|---|
 | `select.<zone>_shade_mode` | current mode — **the only thing policy writes** |

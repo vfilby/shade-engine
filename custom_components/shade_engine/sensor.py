@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, signal_zone_update
+from .entity import zone_device_info
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     engine = hass.data[DOMAIN]
     entities: list[SensorEntity] = []
@@ -28,9 +28,11 @@ async def async_setup_platform(
 
 class _ZoneSensor(SensorEntity):
     _attr_should_poll = False
+    _attr_has_entity_name = True
 
     def __init__(self, zone) -> None:
         self._zone = zone
+        self._attr_device_info = zone_device_info(zone)
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -55,7 +57,7 @@ class GlarePositionSensor(_ZoneSensor):
     def __init__(self, zone) -> None:
         super().__init__(zone)
         self._attr_unique_id = f"{DOMAIN}_{zone.zone_id}_glare_position"
-        self._attr_name = f"{zone.name} glare position"
+        self._attr_name = "Glare position"
 
     @property
     def native_value(self) -> int:
@@ -79,7 +81,7 @@ class TargetSensor(_ZoneSensor):
     def __init__(self, zone) -> None:
         super().__init__(zone)
         self._attr_unique_id = f"{DOMAIN}_{zone.zone_id}_target"
-        self._attr_name = f"{zone.name} shade target"
+        self._attr_name = "Shade target"
 
     @property
     def native_value(self) -> int:

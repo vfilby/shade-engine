@@ -135,6 +135,15 @@ class ZoneCore:
         ``forced`` bypasses rate limiting (mode changes, explicit services)
         but never bypasses an active hold.
         """
+        # Adopt baselines for covers we have never commanded. Without this,
+        # the first manual move after startup is mistaken for the baseline in
+        # report_position (no hold), and the next tick reverts the human's
+        # move. Seeding here means that by the first tick every reachable
+        # cover has a baseline, so a later differing report reads as manual.
+        for cover, position in current.items():
+            if position is not None:
+                self.last_commanded.setdefault(cover, position)
+
         if self.hold_active(now):
             return Decision(REASON_HOLD)
 

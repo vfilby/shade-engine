@@ -14,13 +14,14 @@ import logging
 
 import voluptuous as vol
 
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     EVENT_HOMEASSISTANT_STARTED,
     Platform,
 )
 from homeassistant.core import CoreState, Event, HomeAssistant, ServiceCall, callback
-from homeassistant.helpers import config_validation as cv, discovery
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_call_later,
@@ -365,7 +366,12 @@ class ShadeEngine:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Shade Engine from YAML configuration."""
-    conf = config[DOMAIN]
+    conf = config.get(DOMAIN)
+    if conf is None:
+        # YAML was removed; drop the imported entry so entities don't linger.
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            hass.async_create_task(hass.config_entries.async_remove(entry.entry_id))
+        return True
     zones = {
         zone_id: Zone(zone_id, zone_conf)
         for zone_id, zone_conf in conf[CONF_ZONES].items()
@@ -415,15 +421,50 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=vol.Schema({vol.Optional(ATTR_ZONE): cv.slug}),
     )
 
-    for platform in PLATFORMS:
-        hass.async_create_task(
-            discovery.async_load_platform(hass, platform, DOMAIN, {}, config)
+    # A single config entry imported from YAML is what lets each zone appear
+    # as a device on the integration page; the entry itself stores nothing.
+    hass.async_create_task(
+        hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_IMPORT}, data={}
         )
+    )
+
+    # The wrapper must itself be a @callback: a bare lambda would be run in
+    # the executor, and async_start touches loop-only APIs.
+    @callback
+    def _start(_event: Event) -> None:
+        engine.async_start()
 
     if hass.state is CoreState.running:
         engine.async_start()
     else:
-        hass.bus.async_listen_once(
-            EVENT_HOMEASSISTANT_STARTED, lambda _event: engine.async_start()
-        )
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start)
     return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up entities from the YAML-imported config entry."""
+    engine: ShadeEngine | None = hass.data.get(DOMAIN)
+    if engine is None:
+        # Entry exists but YAML is gone; async_setup is already removing it.
+        return False
+
+    # Drop devices for zones that were removed from the YAML.
+    device_registry = dr.async_get(hass)
+    zone_ids = set(engine.zones)
+    for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+        if not any(
+            domain == DOMAIN and zone_id in zone_ids
+            for domain, zone_id in device.identifiers
+        ):
+            device_registry.async_update_device(
+                device.id, remove_config_entry_id=entry.entry_id
+            )
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload the config entry's platforms."""
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
