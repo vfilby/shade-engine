@@ -1,13 +1,29 @@
 """Tests for the pure glare calculator."""
 
+import math
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "custom_components" / "shade_engine"))
 
-from calculator import WindowGeometry, glare, relative_azimuth  # noqa: E402
+from calculator import (  # noqa: E402
+    EyeZone,
+    Reflector,
+    WindowGeometry,
+    glare,
+    relative_azimuth,
+)
 
 WEST = WindowGeometry(azimuth=268, height=0.74, protect_depth=1.7)
+
+# A tall patio-door style window: glass from floor to 2 m, eyes protected
+# between 0.8 and 1.4 m high, 2-4 m into the room, shiny floor.
+PATIO = WindowGeometry(
+    azimuth=268,
+    height=2.0,
+    eye_zone=EyeZone(low=0.8, high=1.4, near=2.0, far=4.0),
+    reflectors=(Reflector(height=0.0),),
+)
 
 
 def test_relative_azimuth_wraps():
@@ -73,3 +89,106 @@ def test_grazing_angle_is_open():
 def test_position_monotonic_in_elevation():
     positions = [glare(268, el, WEST).position for el in range(1, 60)]
     assert positions == sorted(positions)
+
+
+# -- eye zone + reflections --------------------------------------------------
+
+
+def test_eye_zone_floor_matches_protect_depth():
+    # eye_zone with low=0, near=protect_depth, far=inf is the legacy model.
+    eye = WindowGeometry(
+        azimuth=268,
+        height=0.74,
+        eye_zone=EyeZone(low=0.0, high=1.4, near=1.7),
+    )
+    for elevation in range(1, 80, 3):
+        assert glare(268, elevation, eye).position == glare(268, elevation, WEST).position
+
+
+def test_high_sun_reflection_closes():
+    # At 45 degrees direct sun stops well short of the eye zone, but the
+    # floor bounce climbs back into it: mirror formula near*t - high = 0.6 m.
+    result = glare(268, 45, PATIO)
+    assert result.position == 30
+    assert result.constraint == "reflected"
+
+    no_reflector = WindowGeometry(
+        azimuth=268,
+        height=2.0,
+        eye_zone=EyeZone(low=0.8, high=1.4, near=2.0, far=4.0),
+    )
+    assert glare(268, 45, no_reflector).position == 100
+
+
+def test_daily_pattern_is_non_monotonic():
+    # Glare when high (reflection), better mid-descent (bounce falls short of
+    # the zone), tightening again as the sun drops toward eye level.
+    high = glare(268, 45, PATIO)
+    mid = glare(268, 10, PATIO)
+    assert high.position == 30 and high.constraint == "reflected"
+    assert mid.position == 58 and mid.constraint == "direct"
+    assert mid.position > high.position
+
+
+def test_counter_reflector_extent():
+    counter_zone = EyeZone(low=1.0, high=1.6, near=2.0, far=4.0)
+    under_window = WindowGeometry(
+        azimuth=268,
+        height=2.0,
+        eye_zone=counter_zone,
+        reflectors=(Reflector(height=0.9, start=0.0, end=0.6),),
+    )
+    elevation = math.degrees(math.atan(0.3))
+    result = glare(268, elevation, under_window)
+    assert result.position == 45
+    assert result.constraint == "reflected"
+
+    # Same counter moved deep into the room: the lit patch that matters is
+    # farther out, the bounce constraint loosens past direct, direct binds.
+    deep = WindowGeometry(
+        azimuth=268,
+        height=2.0,
+        eye_zone=counter_zone,
+        reflectors=(Reflector(height=0.9, start=3.0, end=3.5),),
+    )
+    result = glare(268, elevation, deep)
+    assert result.position == 80
+    assert result.constraint == "direct"
+
+
+def test_sill_escape_branch():
+    # Counter-height sill: at 20 degrees the nearest sunlit floor point is
+    # already beyond the hazard strip, so the reflection constraint vanishes;
+    # at 30 degrees the strip is lit and even a crack of opening bounces in.
+    kitchen = WindowGeometry(
+        azimuth=268,
+        height=0.74,
+        sill_height=0.9,
+        eye_zone=EyeZone(low=0.8, high=1.4, near=2.0, far=4.0),
+        reflectors=(Reflector(height=0.0),),
+    )
+    escaped = glare(268, 20, kitchen)
+    assert escaped.position == 85
+    assert escaped.constraint == "direct"
+
+    lit = glare(268, 30, kitchen)
+    assert lit.position == 0
+    assert lit.constraint == "reflected"
+
+
+def test_reflector_above_eye_zone_is_ignored():
+    zone = EyeZone(low=0.8, high=1.4, near=2.0, far=4.0)
+    base = WindowGeometry(azimuth=268, height=2.0, eye_zone=zone)
+    shelved = WindowGeometry(
+        azimuth=268,
+        height=2.0,
+        eye_zone=zone,
+        reflectors=(Reflector(height=1.0),),
+    )
+    for elevation in range(1, 80, 3):
+        assert glare(268, elevation, shelved) == glare(268, elevation, base)
+
+
+def test_constraint_attribute_when_unbound():
+    assert glare(268, -5, WEST).constraint == "none"
+    assert glare(268, 60, WEST).constraint == "none"  # clamps fully open
