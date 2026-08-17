@@ -1,5 +1,6 @@
 {
   "config": {
+    "step": {},
     "abort": {
       "yaml_only": "Shade Engine is configured via YAML (the shade_engine: block in configuration.yaml). The integration registers itself from that configuration; there is nothing to set up here.",
       "already_configured": "Shade Engine is already set up from your YAML configuration."
