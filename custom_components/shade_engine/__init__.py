@@ -429,12 +429,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         )
     )
 
+    # The wrapper must itself be a @callback: a bare lambda would be run in
+    # the executor, and async_start touches loop-only APIs.
+    @callback
+    def _start(_event: Event) -> None:
+        engine.async_start()
+
     if hass.state is CoreState.running:
         engine.async_start()
     else:
-        hass.bus.async_listen_once(
-            EVENT_HOMEASSISTANT_STARTED, lambda _event: engine.async_start()
-        )
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start)
     return True
 
 

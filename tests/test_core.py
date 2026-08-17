@@ -119,6 +119,27 @@ def test_first_report_adopts_baseline():
     assert zone.last_commanded["cover.a"] == 25
 
 
+def test_evaluate_seeds_baseline_so_first_manual_move_holds():
+    # Regression: without seeding, the first manual move after startup was
+    # adopted as the baseline (no hold) and the next tick reverted it.
+    zone = make_zone("open", hold_duration=3600, settle=90)
+    d = zone.evaluate(1000, 100, {"cover.a": 100, "cover.b": 100})
+    assert d.reason == REASON_IN_SYNC
+    assert zone.last_commanded == {"cover.a": 100, "cover.b": 100}
+
+    # Hours later a human closes a cover: manual, held, not reverted.
+    assert zone.report_position("cover.a", 25, now=20000)
+    assert zone.hold_active(20001)
+    d = zone.evaluate(20060, 100, {"cover.a": 25, "cover.b": 100})
+    assert d.reason == REASON_HOLD
+
+
+def test_evaluate_does_not_seed_unavailable_covers():
+    zone = make_zone("open")
+    zone.evaluate(1000, 100, {"cover.a": None, "cover.b": 100})
+    assert "cover.a" not in zone.last_commanded
+
+
 def test_release_hold():
     zone = make_zone("open")
     zone.start_hold(1000)
