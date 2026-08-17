@@ -1,5 +1,11 @@
 # Shade Engine
 
+[![Validate](https://github.com/vfilby/shade-engine/actions/workflows/validate.yml/badge.svg)](https://github.com/vfilby/shade-engine/actions/workflows/validate.yml)
+[![Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fvfilby%2Fshade-engine%2Fmain%2Fcustom_components%2Fshade_engine%2Fmanifest.json&query=%24.version&prefix=v&label=version&color=blue)](https://github.com/vfilby/shade-engine)
+[![Home Assistant](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fvfilby%2Fshade-engine%2Fmain%2Fhacs.json&query=%24.homeassistant&suffix=%2B&label=Home%20Assistant&color=41BDF5)](https://www.home-assistant.io/)
+[![HACS](https://img.shields.io/badge/HACS-custom-orange.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![License](https://img.shields.io/github/license/vfilby/shade-engine)](LICENSE)
+
 > **Note:** This is heavily based on
 > [Adaptive Covers](https://github.com/basbruss/adaptive-cover), and
 > ultimately is a stripped down version that externalizes the state
