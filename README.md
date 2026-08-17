@@ -1,5 +1,16 @@
 # Shade Engine
 
+> **Note:** This is heavily based on
+> [Adaptive Covers](https://github.com/basbruss/adaptive-cover), and
+> ultimately is a stripped down version that externalizes the state
+> management so that I can control it with automations instead of
+> influencing it with inputs. For most people you should probably try it
+> first; it is more mature, has configuration built into the UI, and will
+> certainly be better supported. If you need more control and you are ok
+> with some manual config then you can give this one a try. On a side note,
+> manual YAML config is quite a bit more friendly to agents so that is a
+> side benefit.
+
 Sun-tracking shade control for Home Assistant with **externalized policy**.
 
 Shade Engine does two things and refuses to do a third:
