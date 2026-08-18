@@ -1,3 +1,5 @@
+<img src="brands/shade_engine/icon.png" alt="Shade Engine — a half-drawn shade over a sunset window" width="96" align="right">
+
 # Shade Engine
 
 [![Validate](https://github.com/vfilby/shade-engine/actions/workflows/validate.yml/badge.svg)](https://github.com/vfilby/shade-engine/actions/workflows/validate.yml)
@@ -222,6 +224,19 @@ disabled.)
       target: { entity_id: select.kitchen_shade_mode }
       data: { option: night }
 ```
+
+## Simulator
+
+[`docs/simulator.html`](docs/simulator.html) is a self-contained, single-page
+simulator (no build, no network — open it in any browser). Paste your zone
+YAML, pick a date, location, and sky, and it plays the whole stack through a
+day: the calculator's glare position (a direct port of `calculator.py`,
+eye-zone and reflected-glare constraints included), a lux/elevation policy
+ladder with editable thresholds, and the actuator's real semantics — deadband,
+rate limiting that defers, and manual-move holds (there's a control to inject
+a manual move and watch the hold start and expire). A room cross-section
+diagram shows the sun ray, eye zone, and reflector bounce at any scrubbed
+minute — useful for sanity-checking a zone's geometry before deploying it.
 
 ## Verifying your geometry
 

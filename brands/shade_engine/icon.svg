@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Shade Engine — a window at golden hour, shade half drawn.
+       Source for brands/shade_engine/icon.png (256) and icon@2x.png (512). -->
+  <defs>
+    <clipPath id="tile">
+      <rect x="8" y="8" width="240" height="240" rx="52"/>
+    </clipPath>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e4f80"/>
+      <stop offset="0.55" stop-color="#3a6f9e"/>
+      <stop offset="0.82" stop-color="#d97f4e"/>
+      <stop offset="1" stop-color="#f0a05a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffd980" stop-opacity="0.9"/>
+      <stop offset="0.6" stop-color="#ffcf6b" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffcf6b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fabric" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f1e4"/>
+      <stop offset="1" stop-color="#ece2cd"/>
+    </linearGradient>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <!-- evening sky seen through the glass -->
+    <rect x="8" y="8" width="240" height="240" fill="url(#sky)"/>
+
+    <!-- low sun, just above the horizon -->
+    <circle cx="170" cy="178" r="64" fill="url(#glow)"/>
+    <circle cx="170" cy="178" r="30" fill="#ffc648"/>
+
+    <!-- horizon -->
+    <rect x="8" y="222" width="240" height="26" fill="#6e4630"/>
+
+    <!-- roller shade, drawn to mid-window -->
+    <rect x="8" y="8" width="240" height="106" fill="url(#fabric)"/>
+    <g stroke="#ddd0b8" stroke-width="3">
+      <line x1="8" y1="42" x2="248" y2="42"/>
+      <line x1="8" y1="68" x2="248" y2="68"/>
+      <line x1="8" y1="94" x2="248" y2="94"/>
+    </g>
+    <!-- shadow the shade casts into the room -->
+    <rect x="8" y="114" width="240" height="10" fill="#123152" opacity="0.28"/>
+    <!-- bottom rail and pull -->
+    <rect x="8" y="108" width="240" height="14" rx="2" fill="#3a4653"/>
+    <line x1="128" y1="122" x2="128" y2="140" stroke="#3a4653" stroke-width="4"/>
+    <circle cx="128" cy="147" r="8" fill="none" stroke="#3a4653" stroke-width="5"/>
+  </g>
+</svg>

@@ -1,0 +1,1333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shade Engine Simulator</title>
+</head>
+<body>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --accent: #2a78d6;      /* cover position + UI accent */
+    --accent-soft: rgba(42, 120, 214, 0.12);
+    --glare: #eb6834;       /* glare target line */
+    --sun-wash: rgba(235, 104, 52, 0.10);
+    --lux: #c98500;         /* illuminance line (darker step for light surface) */
+    --hold: #4a3aa7;        /* manual-hold state */
+    --hold-wash: rgba(74, 58, 167, 0.12);
+    --night-wash: rgba(11, 11, 11, 0.05);
+    --bad: #d03b3b;
+    --mode-1: rgba(42, 120, 214, 0.18);
+    --mode-2: rgba(235, 104, 52, 0.20);
+    --mode-3: rgba(27, 175, 122, 0.20);
+    --mode-4: rgba(74, 58, 167, 0.16);
+    --mode-5: rgba(232, 123, 164, 0.22);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --accent: #3987e5;
+      --accent-soft: rgba(57, 135, 229, 0.18);
+      --glare: #d95926;
+      --sun-wash: rgba(217, 89, 38, 0.14);
+      --lux: #eda100;
+      --hold: #9085e9;
+      --hold-wash: rgba(144, 133, 233, 0.16);
+      --night-wash: rgba(255, 255, 255, 0.05);
+      --bad: #e66767;
+      --mode-1: rgba(57, 135, 229, 0.26);
+      --mode-2: rgba(217, 89, 38, 0.28);
+      --mode-3: rgba(25, 158, 112, 0.28);
+      --mode-4: rgba(144, 133, 233, 0.24);
+      --mode-5: rgba(213, 81, 129, 0.28);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --accent: #3987e5;
+    --accent-soft: rgba(57, 135, 229, 0.18);
+    --glare: #d95926;
+    --sun-wash: rgba(217, 89, 38, 0.14);
+    --lux: #eda100;
+    --hold: #9085e9;
+    --hold-wash: rgba(144, 133, 233, 0.16);
+    --night-wash: rgba(255, 255, 255, 0.05);
+    --bad: #e66767;
+    --mode-1: rgba(57, 135, 229, 0.26);
+    --mode-2: rgba(217, 89, 38, 0.28);
+    --mode-3: rgba(25, 158, 112, 0.28);
+    --mode-4: rgba(144, 133, 233, 0.24);
+    --mode-5: rgba(213, 81, 129, 0.28);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 80px; }
+
+  header.top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  header.top h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  header.top .sub { color: var(--ink-2); font-size: 14px; }
+  p.lede { color: var(--ink-2); max-width: 68ch; margin: 4px 0 22px; font-size: 14px; }
+
+  .layout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 1020px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  aside .panel + .panel { margin-top: 14px; }
+  .panel h2 {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); margin: 0 0 12px;
+  }
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+  .field label { color: var(--ink-2); font-size: 13px; flex: 1 1 auto; }
+  .field input[type="number"], .field input[type="date"], .field input[type="time"], .field select {
+    font: inherit; font-size: 13px; color: var(--ink);
+    background: var(--page); border: 1px solid var(--axis); border-radius: 6px;
+    padding: 4px 8px; width: 118px;
+  }
+  .field input[type="number"] { width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
+  .field input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+
+  textarea#yaml {
+    width: 100%; min-height: 340px; resize: vertical;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--ink); background: var(--page);
+    border: 1px solid var(--axis); border-radius: 8px; padding: 10px;
+    white-space: pre; tab-size: 2;
+  }
+  button.apply {
+    font: inherit; font-size: 13px; font-weight: 600;
+    color: #fff; background: var(--accent); border: none; border-radius: 7px;
+    padding: 7px 14px; cursor: pointer; margin-top: 8px;
+  }
+  button.apply:hover { filter: brightness(1.08); }
+  .err {
+    display: none; margin-top: 10px; padding: 8px 10px; border-radius: 7px;
+    border: 1px solid var(--bad); color: var(--bad); font-size: 13px; white-space: pre-wrap;
+  }
+  .err.show { display: block; }
+
+  .cardrow { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .cardrow h3 { margin: 0; font-size: 16px; font-weight: 650; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; color: var(--ink);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px;
+    background: var(--page);
+  }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .stat { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .stat b { color: var(--ink); font-weight: 650; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 2px 0 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+  .legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid; border-radius: 1px; }
+  .legend i.dashed { border-top-style: dashed; }
+  .legend b.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+
+  .chart-box { position: relative; }
+  svg.chart { display: block; width: 100%; height: auto; }
+  svg.chart text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); }
+  svg.chart .tick { font-variant-numeric: tabular-nums; }
+  .skygrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+
+  #tooltip {
+    position: fixed; z-index: 30; pointer-events: none; display: none;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    padding: 8px 10px; font-size: 12px; line-height: 1.5; max-width: 260px;
+    font-variant-numeric: tabular-nums;
+  }
+  #tooltip .t { font-weight: 650; }
+  #tooltip .r { color: var(--ink-2); }
+
+  .scrub { display: flex; align-items: center; gap: 14px; }
+  .scrub input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .scrub .time { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 52px; }
+
+  section.block { margin-top: 20px; }
+  section.block > .panel + .panel { margin-top: 16px; }
+
+  details.tbl { margin-top: 10px; }
+  details.tbl summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+  details.tbl .tblwrap { overflow-x: auto; margin-top: 8px; }
+  details.tbl table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; min-width: 560px; }
+  details.tbl th, details.tbl td { text-align: right; padding: 3px 10px; border-bottom: 1px solid var(--grid); }
+  details.tbl th:first-child, details.tbl td:first-child { text-align: left; }
+  details.tbl th { color: var(--muted); font-weight: 600; }
+
+  .xsect-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .xsect-head select { font: inherit; font-size: 13px; background: var(--page); color: var(--ink); border: 1px solid var(--axis); border-radius: 6px; padding: 4px 8px; }
+  .xsect-caption { color: var(--ink-2); font-size: 13px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .panel { transition: border-color 120ms ease; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Shade Engine Simulator</h1>
+    <span class="sub">geometry · policy · actuator, one day at a time</span>
+  </header>
+  <p class="lede">
+    Paste a <code>shade_engine</code> zone configuration, set a day and a sky, and watch what the
+    engine would do: the calculator's glare position, the policy ladder switching modes, and the
+    actuator's actual cover commands — deadband, rate limiting, and manual-move holds included.
+    Times are shown in this browser's timezone; illuminance is a synthetic outdoor-sensor model.
+  </p>
+
+  <div class="layout">
+    <aside>
+      <div class="panel">
+        <h2>Scenario</h2>
+        <div class="field"><label for="in-date">Date</label><input type="date" id="in-date"></div>
+        <div class="field"><label for="in-lat">Latitude</label><input type="number" id="in-lat" step="0.01" value="47.70"></div>
+        <div class="field"><label for="in-lon">Longitude</label><input type="number" id="in-lon" step="0.01" value="-122.30"></div>
+        <div class="field"><label for="in-sky">Sky</label>
+          <select id="in-sky">
+            <option value="clear">Clear</option>
+            <option value="mixed">Partly cloudy</option>
+            <option value="overcast">Overcast</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Policy ladder</h2>
+        <div class="field"><label for="p-firstlux">First light ≥ (lx)</label><input type="number" id="p-firstlux" value="100"></div>
+        <div class="field"><label for="p-floor">…but not before</label><input type="time" id="p-floor" value="06:00"></div>
+        <div class="field"><label for="p-glarelux">Glare mode ≥ (lx)</label><input type="number" id="p-glarelux" value="10000"></div>
+        <div class="field"><label for="p-relelev">Release only above (° elev)</label><input type="number" id="p-relelev" value="15"></div>
+        <div class="field"><label for="p-dimlux">…or dim below (lx)</label><input type="number" id="p-dimlux" value="1500"></div>
+        <div class="field"><label for="p-nightlux">Night close &lt; (lx)</label><input type="number" id="p-nightlux" value="10"></div>
+        <div class="field"><label for="p-nightelev">Night backstop (° elev)</label><input type="number" id="p-nightelev" value="-9"></div>
+        <p class="hint">The ladder sets each zone's mode: <b>night → open → glare → open → night</b>.
+        Glare releases when bright ends above the elevation gate, on dim, or 5&nbsp;min before sunset.
+        Zones without a matching mode name keep their current mode.</p>
+        <div id="overrides"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Manual move</h2>
+        <div class="field"><label for="m-on">Simulate a manual move</label><input type="checkbox" id="m-on"></div>
+        <div class="field"><label for="m-zone">Zone</label><select id="m-zone"></select></div>
+        <div class="field"><label for="m-time">At</label><input type="time" id="m-time" value="13:30"></div>
+        <div class="field"><label for="m-pos">To position</label><input type="number" id="m-pos" min="0" max="100" value="100"></div>
+        <p class="hint">A position that differs from the last command by more than the deadband,
+        outside the settle window, starts a visible hold for the zone's <code>hold_duration</code>.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Zones (configuration.yaml)</h2>
+        <textarea id="yaml" spellcheck="false" aria-label="Zone configuration YAML"></textarea>
+        <button class="apply" id="apply">Apply configuration</button>
+        <div class="err" id="yaml-err" role="alert"></div>
+        <p class="hint">Same schema as the integration: <code>window</code> geometry with
+        <code>protect_depth</code> or <code>eye_zone</code> + <code>reflectors</code>,
+        <code>modes</code> (fixed position, <code>glare</code>, or min/max clamp), and
+        <code>motion</code> tuning.</p>
+      </div>
+    </aside>
+
+    <main>
+      <section class="panel">
+        <h2>Sky</h2>
+        <div class="skygrid">
+          <div>
+            <div class="legend"><span><i style="border-color:var(--accent)"></i>Sun elevation (°)</span></div>
+            <div class="chart-box" id="chart-elev"></div>
+          </div>
+          <div>
+            <div class="legend"><span><i style="border-color:var(--lux)"></i>Outdoor illuminance (lx, log)</span></div>
+            <div class="chart-box" id="chart-lux"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-top:16px">
+        <h2>Time</h2>
+        <div class="scrub">
+          <span class="time" id="scrub-time">12:00</span>
+          <input type="range" id="scrub" min="0" max="1439" step="1" value="720" aria-label="Time of day">
+        </div>
+      </section>
+
+      <section class="block" id="zones"></section>
+
+      <section class="block">
+        <div class="panel">
+          <div class="xsect-head">
+            <h2 style="margin:0">Room cross-section</h2>
+            <select id="xsect-zone" aria-label="Cross-section zone"></select>
+          </div>
+          <div class="chart-box" id="xsect"></div>
+          <div class="xsect-caption" id="xsect-caption"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<div id="tooltip"></div>
+
+<script>
+'use strict';
+/* =====================================================================
+ * Shade Engine simulator.
+ * The calculator and actuator sections are line-for-line ports of
+ * custom_components/shade_engine/calculator.py and core.py — keep them
+ * in sync with the Python when the integration changes.
+ * ===================================================================== */
+
+const RAD = Math.PI / 180;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/* ---- calculator.py port -------------------------------------------- */
+
+function relativeAzimuth(sunAz, winAz) {
+  return ((((sunAz - winAz + 180) % 360) + 360) % 360) - 180;
+}
+
+function openDirect(t, geo) {
+  const ez = geo.eyeZone;
+  if (!ez) return geo.protectDepth * t;
+  if (geo.sillHeight - ez.far * t >= ez.high) return Infinity;
+  return (ez.low - geo.sillHeight) + ez.near * t;
+}
+
+function openReflected(t, geo, ref) {
+  const ez = geo.eyeZone;
+  const r = ref.height;
+  if (r >= ez.low) return Infinity;
+  const stripLo = Math.max(ez.near - (ez.high - r) / t, ref.start, 0);
+  const stripHi = Math.min(ez.far - (ez.low - r) / t, ref.end);
+  if (stripHi <= stripLo) return Infinity;
+  const patchStart = Math.max(geo.sillHeight - r, 0) / t;
+  if (patchStart >= stripHi) return Infinity;
+  return (r - geo.sillHeight) + stripLo * t;
+}
+
+function glare(sunAz, sunEl, geo) {
+  const gamma = relativeAzimuth(sunAz, geo.azimuth);
+  const inFov = -geo.fovLeft <= gamma && gamma <= geo.fovRight;
+  if (sunEl <= geo.minElevation || !inFov) {
+    return { position: 100, sunInWindow: false, gamma, profile: 0, constraint: 'none' };
+  }
+  const cosGamma = Math.cos(gamma * RAD);
+  if (cosGamma <= 1e-6) {
+    return { position: 100, sunInWindow: false, gamma, profile: 90, constraint: 'none' };
+  }
+  const profile = Math.atan2(Math.tan(sunEl * RAD), cosGamma) / RAD;
+  const t = Math.tan(profile * RAD);
+  let openH, constraint;
+  if (t <= 1e-9) {
+    openH = 0; constraint = 'direct';
+  } else {
+    openH = openDirect(t, geo); constraint = 'direct';
+    if (geo.eyeZone) {
+      for (const ref of geo.reflectors) {
+        const bounce = openReflected(t, geo, ref);
+        if (bounce < openH) { openH = bounce; constraint = 'reflected'; }
+      }
+    }
+  }
+  const fraction = clamp(openH / geo.height, 0, 1);
+  return {
+    position: Math.round(fraction * 100),
+    sunInWindow: true, gamma, profile,
+    constraint: fraction >= 1 ? 'none' : constraint,
+  };
+}
+
+/* ---- core.py port --------------------------------------------------- */
+
+const REASON = { COMMAND: 'command', HOLD: 'hold_active', IN_SYNC: 'in_sync', RATE: 'rate_limited' };
+
+function resolveMode(target, glarePos) {
+  if (!target.dynamic) return target.fixed;
+  return clamp(glarePos, target.min, target.max);
+}
+
+class ZoneCore {
+  constructor(covers, modes, motion, mode) {
+    this.covers = covers;
+    this.modes = modes;       // name -> {fixed}|{dynamic,min,max}
+    this.motion = motion;     // {deadband, minInterval, holdDuration, settle} seconds
+    this.mode = mode;
+    this.lastCommanded = new Map();
+    this.lastCommandTs = null;
+    this.holdUntil = null;
+  }
+  target(glarePos) { return resolveMode(this.modes[this.mode], glarePos); }
+  holdActive(now) { return this.holdUntil !== null && now < this.holdUntil; }
+  startHold(now, duration) {
+    this.holdUntil = now + (duration != null ? duration : this.motion.holdDuration);
+  }
+  releaseHold() { this.holdUntil = null; }
+  reportPosition(cover, position, now) {
+    const commanded = this.lastCommanded.get(cover);
+    if (commanded === undefined) { this.lastCommanded.set(cover, position); return false; }
+    if (Math.abs(position - commanded) <= this.motion.deadband) return false;
+    if (this.lastCommandTs !== null && now - this.lastCommandTs < this.motion.settle) return false;
+    this.lastCommanded.set(cover, position);
+    this.startHold(now);
+    return true;
+  }
+  evaluate(now, glarePos, current, forced) {
+    for (const [cover, position] of current) {
+      if (position !== null && !this.lastCommanded.has(cover)) this.lastCommanded.set(cover, position);
+    }
+    if (this.holdActive(now)) return { reason: REASON.HOLD, target: null, covers: [] };
+    const target = this.target(glarePos);
+    const movers = this.covers.filter(c => {
+      const p = current.get(c);
+      return p !== null && p !== undefined && Math.abs(p - target) > this.motion.deadband;
+    });
+    if (!movers.length) return { reason: REASON.IN_SYNC, target, covers: [] };
+    if (!forced && this.lastCommandTs !== null && now - this.lastCommandTs < this.motion.minInterval) {
+      return { reason: REASON.RATE, target, covers: [] };
+    }
+    for (const c of movers) this.lastCommanded.set(c, target);
+    this.lastCommandTs = now;
+    return { reason: REASON.COMMAND, target, covers: movers };
+  }
+}
+
+/* ---- solar position (NOAA approximation) ---------------------------- */
+
+function solarPosition(utcMs, lat, lon) {
+  const jd = utcMs / 86400000 + 2440587.5;
+  const T = (jd - 2451545) / 36525;
+  const L0 = (280.46646 + T * (36000.76983 + T * 0.0003032)) % 360;
+  const M = 357.52911 + T * (35999.05029 - 0.0001537 * T);
+  const e = 0.016708634 - T * (0.000042037 + 0.0000001267 * T);
+  const C = Math.sin(M * RAD) * (1.914602 - T * (0.004817 + 0.000014 * T))
+    + Math.sin(2 * M * RAD) * (0.019993 - 0.000101 * T)
+    + Math.sin(3 * M * RAD) * 0.000289;
+  const trueLong = L0 + C;
+  const omega = 125.04 - 1934.136 * T;
+  const lambda = trueLong - 0.00569 - 0.00478 * Math.sin(omega * RAD);
+  const eps0 = 23 + (26 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60) / 60;
+  const eps = eps0 + 0.00256 * Math.cos(omega * RAD);
+  const decl = Math.asin(Math.sin(eps * RAD) * Math.sin(lambda * RAD)) / RAD;
+  const y = Math.tan(eps * RAD / 2) ** 2;
+  const eqTime = 4 / RAD * (
+    y * Math.sin(2 * L0 * RAD) - 2 * e * Math.sin(M * RAD)
+    + 4 * e * y * Math.sin(M * RAD) * Math.cos(2 * L0 * RAD)
+    - 0.5 * y * y * Math.sin(4 * L0 * RAD) - 1.25 * e * e * Math.sin(2 * M * RAD));
+  const minutesUTC = (utcMs / 60000) % 1440;
+  const tst = (((minutesUTC + eqTime + 4 * lon) % 1440) + 1440) % 1440;
+  let ha = tst / 4 - 180;
+  if (ha < -180) ha += 360;
+  const cosZen = Math.sin(lat * RAD) * Math.sin(decl * RAD)
+    + Math.cos(lat * RAD) * Math.cos(decl * RAD) * Math.cos(ha * RAD);
+  const zen = Math.acos(clamp(cosZen, -1, 1)) / RAD;
+  let elevation = 90 - zen;
+  // Atmospheric refraction (NOAA piecewise), matching what sun.sun reports.
+  let refr = 0;
+  if (elevation <= 85) {
+    const te = Math.tan(elevation * RAD);
+    if (elevation > 5) refr = 58.1 / te - 0.07 / te ** 3 + 0.000086 / te ** 5;
+    else if (elevation > -0.575) refr = 1735 + elevation * (-518.2 + elevation * (103.4 + elevation * (-12.79 + elevation * 0.711)));
+    else refr = -20.774 / te;
+    refr /= 3600;
+  }
+  elevation += refr;
+  let az = Math.acos(clamp(
+    (Math.sin(lat * RAD) * cosZen - Math.sin(decl * RAD)) / (Math.cos(lat * RAD) * Math.sin(zen * RAD)),
+    -1, 1)) / RAD;
+  az = ha > 0 ? (az + 180) % 360 : (540 - az) % 360;
+  return { elevation, azimuth: az };
+}
+
+/* ---- illuminance model ---------------------------------------------- */
+
+function hashSeed(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) / 4294967295;
+}
+
+function cloudMultiplier(sky, minute, seed) {
+  if (sky === 'clear') return 1;
+  if (sky === 'overcast') return 0.85 + 0.15 * Math.sin(minute / 97 + seed * 6);
+  // partly cloudy: slow overlapping waves, deterministic per date
+  const a = 0.5 + 0.5 * Math.sin(minute / 55 + seed * 20);
+  const b = 0.5 + 0.5 * Math.sin(minute / 23 + seed * 40);
+  return 0.2 + 0.8 * (0.35 + 0.65 * a * b);
+}
+
+function luxAt(elevation, sky, minute, seed) {
+  const factor = sky === 'overcast' ? 0.10 : 0.55; // scaled to a typical outdoor sensor
+  const daylight = 127500 * Math.max(0, Math.sin(elevation * RAD)) * factor;
+  const twilight = 400 * Math.exp(Math.min(0, elevation) / 1.2) * (elevation < 8 ? 1 : 0)
+    * (sky === 'overcast' ? 0.4 : 1);
+  return (daylight * cloudMultiplier(sky, minute, seed)) + twilight;
+}
+
+/* ---- tiny YAML subset parser ---------------------------------------- */
+/* Handles the shade_engine schema: nested maps by indentation, block and
+   inline lists, inline maps, numbers, strings, booleans, comments. */
+
+function parseYAML(text) {
+  const rawLines = text.split('\n');
+  const lines = [];
+  for (let i = 0; i < rawLines.length; i++) {
+    let s = rawLines[i];
+    let inQ = null, cut = -1;
+    for (let j = 0; j < s.length; j++) {
+      const ch = s[j];
+      if (inQ) { if (ch === inQ) inQ = null; continue; }
+      if (ch === '"' || ch === "'") inQ = ch;
+      else if (ch === '#') { cut = j; break; }
+    }
+    if (cut >= 0) s = s.slice(0, cut);
+    if (s.trim() === '') continue;
+    if (s.includes('\t')) throw new Error(`line ${i + 1}: tabs are not allowed in YAML`);
+    lines.push({ n: i + 1, indent: s.length - s.trimStart().length, text: s.trim() });
+  }
+  let pos = 0;
+
+  function parseScalar(s) {
+    s = s.trim();
+    if (s === '' || s === '~' || s === 'null') return null;
+    if (s === 'true') return true;
+    if (s === 'false') return false;
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) return s.slice(1, -1);
+    if (s.startsWith('[')) return parseInlineList(s);
+    if (s.startsWith('{')) return parseInlineMap(s);
+    const num = Number(s);
+    if (!Number.isNaN(num) && s !== '') return num;
+    return s;
+  }
+  function splitTop(s, sep) {
+    const parts = []; let depth = 0, cur = '', inQ = null;
+    for (const ch of s) {
+      if (inQ) { cur += ch; if (ch === inQ) inQ = null; continue; }
+      if (ch === '"' || ch === "'") { inQ = ch; cur += ch; continue; }
+      if (ch === '[' || ch === '{') depth++;
+      if (ch === ']' || ch === '}') depth--;
+      if (ch === sep && depth === 0) { parts.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    if (cur.trim() !== '') parts.push(cur);
+    return parts;
+  }
+  function parseInlineList(s) {
+    const inner = s.trim().slice(1, -1).trim();
+    if (inner === '') return [];
+    return splitTop(inner, ',').map(parseScalar);
+  }
+  function parseInlineMap(s) {
+    const inner = s.trim().slice(1, -1).trim();
+    const out = {};
+    if (inner === '') return out;
+    for (const part of splitTop(inner, ',')) {
+      const idx = part.indexOf(':');
+      if (idx < 0) throw new Error(`bad inline mapping entry: ${part}`);
+      out[parseScalar(part.slice(0, idx))] = parseScalar(part.slice(idx + 1));
+    }
+    return out;
+  }
+  function keyOf(s, n) {
+    // split "key: value" at the first top-level colon
+    let inQ = null;
+    for (let j = 0; j < s.length; j++) {
+      const ch = s[j];
+      if (inQ) { if (ch === inQ) inQ = null; continue; }
+      if (ch === '"' || ch === "'") inQ = ch;
+      else if (ch === ':' && (j + 1 === s.length || s[j + 1] === ' ')) {
+        return [s.slice(0, j).trim(), s.slice(j + 1).trim()];
+      }
+    }
+    throw new Error(`line ${n}: expected "key: value"`);
+  }
+  function parseBlock(indent) {
+    if (pos >= lines.length) return null;
+    if (lines[pos].text.startsWith('- ') || lines[pos].text === '-') return parseList(indent);
+    return parseMap(indent);
+  }
+  function parseList(indent) {
+    const out = [];
+    while (pos < lines.length && lines[pos].indent === indent
+        && (lines[pos].text.startsWith('- ') || lines[pos].text === '-')) {
+      const { n } = lines[pos];
+      const rest = lines[pos].text === '-' ? '' : lines[pos].text.slice(2);
+      pos++;
+      if (rest === '') {
+        out.push(pos < lines.length && lines[pos].indent > indent ? parseBlock(lines[pos].indent) : null);
+      } else if (rest.includes(': ') || rest.endsWith(':')) {
+        // list item that is itself a mapping: re-inject as a virtual map line
+        const item = {};
+        const [k, v] = keyOf(rest, n);
+        if (v === '') {
+          item[k] = pos < lines.length && lines[pos].indent > indent + 2 ? parseBlock(lines[pos].indent) : null;
+        } else item[k] = parseScalar(v);
+        while (pos < lines.length && lines[pos].indent === indent + 2
+            && !lines[pos].text.startsWith('- ')) {
+          const [k2, v2] = keyOf(lines[pos].text, lines[pos].n);
+          pos++;
+          if (v2 === '') {
+            item[k2] = pos < lines.length && lines[pos].indent > indent + 2 ? parseBlock(lines[pos].indent) : null;
+          } else item[k2] = parseScalar(v2);
+        }
+        out.push(item);
+      } else {
+        out.push(parseScalar(rest));
+      }
+    }
+    return out;
+  }
+  function parseMap(indent) {
+    const out = {};
+    while (pos < lines.length && lines[pos].indent === indent && !lines[pos].text.startsWith('- ')) {
+      const { n, text } = lines[pos];
+      const [k, v] = keyOf(text, n);
+      pos++;
+      if (v === '') {
+        out[k] = pos < lines.length && lines[pos].indent > indent ? parseBlock(lines[pos].indent) : null;
+      } else {
+        out[k] = parseScalar(v);
+      }
+    }
+    if (pos < lines.length && lines[pos].indent > indent) {
+      throw new Error(`line ${lines[pos].n}: unexpected indentation`);
+    }
+    return out;
+  }
+  const doc = parseBlock(lines.length ? lines[0].indent : 0) || {};
+  if (pos < lines.length) throw new Error(`line ${lines[pos].n}: could not parse`);
+  return doc;
+}
+
+/* ---- config validation (mirrors __init__.py schema) ------------------ */
+
+function buildZones(doc) {
+  const zonesConf = doc && doc.zones ? doc.zones : (doc && doc.shade_engine ? doc.shade_engine.zones : null);
+  if (!zonesConf || typeof zonesConf !== 'object') throw new Error('expected a top-level "zones:" mapping');
+  const zones = [];
+  for (const [id, conf] of Object.entries(zonesConf)) {
+    const where = `zone "${id}"`;
+    if (!conf || typeof conf !== 'object') throw new Error(`${where}: expected a mapping`);
+    const win = conf.window;
+    if (!win) throw new Error(`${where}: missing window`);
+    if (win.azimuth === undefined) throw new Error(`${where}: window.azimuth is required`);
+    if (win.height === undefined) throw new Error(`${where}: window.height is required`);
+    const span = (v, name) => {
+      if (!Array.isArray(v) || v.length !== 2 || !(v[0] < v[1])) {
+        throw new Error(`${where}: ${name} must be [low, high] with low < high`);
+      }
+      return v;
+    };
+    let eyeZone = null;
+    if (win.eye_zone) {
+      const h = span(win.eye_zone.height, 'eye_zone.height');
+      const d = span(win.eye_zone.depth, 'eye_zone.depth');
+      eyeZone = { low: h[0], high: h[1], near: d[0], far: d[1] };
+    }
+    if (win.protect_depth === undefined && !eyeZone) {
+      throw new Error(`${where}: window needs protect_depth or eye_zone`);
+    }
+    const reflectors = (win.reflectors || []).map((r, i) => {
+      const ref = { height: r.height ?? 0, start: r.from ?? 0, end: r.to ?? Infinity };
+      if (!eyeZone) throw new Error(`${where}: reflectors require an eye_zone`);
+      if (ref.height >= eyeZone.low) throw new Error(`${where}: reflector ${i + 1} must sit below the eye_zone`);
+      if (ref.end <= ref.start) throw new Error(`${where}: reflector ${i + 1} 'to' must be greater than 'from'`);
+      return ref;
+    });
+    const geometry = {
+      azimuth: win.azimuth,
+      fovLeft: win.fov_left ?? 90, fovRight: win.fov_right ?? 90,
+      height: win.height, protectDepth: win.protect_depth ?? 0,
+      minElevation: win.min_elevation ?? 0, sillHeight: win.sill_height ?? 0,
+      eyeZone, reflectors,
+    };
+    if (!conf.modes || !Object.keys(conf.modes).length) throw new Error(`${where}: at least one mode is required`);
+    const modes = {};
+    for (const [name, t] of Object.entries(conf.modes)) {
+      if (typeof t === 'number') {
+        if (t < 0 || t > 100) throw new Error(`${where}: mode ${name} must be 0-100`);
+        modes[name] = { dynamic: false, fixed: t };
+      } else if (t === 'glare') {
+        modes[name] = { dynamic: true, min: 0, max: 100 };
+      } else if (t && typeof t === 'object') {
+        modes[name] = { dynamic: true, min: t.min ?? 0, max: t.max ?? 100 };
+      } else {
+        throw new Error(`${where}: mode ${name} must be a position, "glare", or {min,max}`);
+      }
+    }
+    const defaultMode = conf.default_mode ?? Object.keys(modes)[0];
+    if (!modes[defaultMode]) throw new Error(`${where}: default_mode "${defaultMode}" is not a mode`);
+    const m = conf.motion || {};
+    const motion = {
+      deadband: m.deadband ?? 3, minInterval: m.min_interval ?? 300,
+      holdDuration: m.hold_duration ?? 3600, settle: m.settle ?? 90,
+    };
+    zones.push({
+      id, name: conf.name || id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      covers: conf.covers ? [].concat(conf.covers) : [`cover.${id}`],
+      geometry, modes, defaultMode, motion,
+    });
+  }
+  if (!zones.length) throw new Error('no zones defined');
+  return zones;
+}
+
+/* ---- policy state machine -------------------------------------------- */
+
+function runPolicy(minutes, thresholds, sunsetMin) {
+  // minutes: [{lux, elevation}], returns state name per minute
+  const states = new Array(minutes.length);
+  let state = 'night';
+  for (let i = 0; i < minutes.length; i++) {
+    const { lux, elevation } = minutes[i];
+    const isNight = lux < thresholds.nightLux || elevation < thresholds.nightElev;
+    if (isNight) {
+      state = 'night';
+    } else if (state === 'night') {
+      if (lux >= thresholds.firstLux && i >= thresholds.floorMin) state = 'open';
+    } else if (state === 'open') {
+      if (lux >= thresholds.glareLux) state = 'glare';
+    } else if (state === 'glare') {
+      const brightOver = lux < thresholds.glareLux && elevation > thresholds.relElev;
+      const dim = lux < thresholds.dimLux;
+      const nearSunset = sunsetMin !== null && i >= sunsetMin - 5;
+      if (brightOver || dim || nearSunset) state = 'open';
+    }
+    states[i] = state;
+  }
+  return states;
+}
+
+/* ---- simulation ------------------------------------------------------ */
+
+function simulate(cfg) {
+  const { zones, date, lat, lon, sky, policy, manual, overrides } = cfg;
+  const seed = hashSeed(date + sky);
+  const base = new Date(date + 'T00:00:00');   // browser-local midnight
+  const sun = [], env = [];
+  let sunsetMin = null;
+  for (let i = 0; i < 1440; i++) {
+    const s = solarPosition(base.getTime() + i * 60000, lat, lon);
+    sun.push(s);
+    env.push({ lux: luxAt(s.elevation, sky, i, seed), elevation: s.elevation });
+    if (i > 0 && sun[i - 1].elevation >= -0.833 && s.elevation < -0.833 && i > 720) sunsetMin = i;
+  }
+  const policyStates = runPolicy(env, policy, sunsetMin);
+
+  const results = zones.map(zone => {
+    const core = new ZoneCore(zone.covers, zone.modes, zone.motion, zone.defaultMode);
+    const stateToMode = name => {
+      // policy states map onto same-named zone modes when present
+      return zone.modes[name] ? name : null;
+    };
+    const override = overrides[zone.id] || 'policy';
+    // Start the day in whatever the policy says at midnight (usually night).
+    let g0 = glare(sun[0].azimuth, sun[0].elevation, zone.geometry);
+    const initialMode = override !== 'policy' ? override
+      : (stateToMode(policyStates[0]) || zone.defaultMode);
+    core.mode = initialMode;
+    let coverPos = resolveMode(zone.modes[initialMode], g0.position);
+    const samples = new Array(1440);
+    const commands = [];
+    let holdWasActive = false;
+    const manualMin = (manual && manual.zone === zone.id) ? manual.minute : null;
+
+    for (let i = 0; i < 1440; i++) {
+      const now = i * 60;
+      const g = glare(sun[i].azimuth, sun[i].elevation, zone.geometry);
+      let forced = false;
+
+      const desired = override !== 'policy' ? override : stateToMode(policyStates[i]);
+      if (desired && desired !== core.mode) { core.mode = desired; forced = true; }
+
+      if (manualMin === i) {
+        coverPos = manual.position;
+        core.reportPosition(zone.covers[0], coverPos, now);
+      }
+      if (holdWasActive && !core.holdActive(now)) forced = true; // hold expiry reconcile
+      holdWasActive = core.holdActive(now);
+
+      const current = new Map(zone.covers.map(c => [c, coverPos]));
+      const d = core.evaluate(now, g.position, current, forced);
+      if (d.reason === REASON.COMMAND) {
+        coverPos = d.target;
+        commands.push({ minute: i, target: d.target });
+      }
+      samples[i] = {
+        minute: i, mode: core.mode, glarePos: g.position, sunIn: g.sunInWindow,
+        constraint: g.constraint, profile: g.profile, gamma: g.gamma,
+        target: d.target, coverPos, reason: d.reason,
+        hold: core.holdActive(now), policyState: policyStates[i],
+      };
+    }
+    return { zone, samples, commands };
+  });
+
+  return { sun, env, sunsetMin, policyStates, results };
+}
+
+/* ---- chart helpers --------------------------------------------------- */
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs, parent) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+const fmtTime = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+const fmtLux = v => v >= 1000 ? `${Math.round(v / 100) / 10}k` : `${Math.round(v)}`;
+
+const PLOT = { w: 620, hSky: 150, hZone: 210, l: 40, r: 12, t: 10, b: 22 };
+
+function makeChart(container, height, opts) {
+  container.textContent = '';
+  const svg = svgEl('svg', {
+    class: 'chart', viewBox: `0 0 ${PLOT.w} ${height}`,
+    role: 'img', 'aria-label': opts.label,
+  }, null);
+  container.appendChild(svg);
+  const x = m => PLOT.l + (m / 1439) * (PLOT.w - PLOT.l - PLOT.r);
+  for (let h = 0; h <= 24; h += 6) {
+    const px = x(Math.min(h * 60, 1439));
+    svgEl('line', { x1: px, y1: PLOT.t, x2: px, y2: height - PLOT.b, stroke: 'var(--grid)', 'stroke-width': 1 }, svg);
+    svgEl('text', { x: px, y: height - 6, 'text-anchor': 'middle', class: 'tick' }, svg)
+      .textContent = `${String(h % 24).padStart(2, '0')}:00`;
+  }
+  return { svg, x, top: PLOT.t, bottom: height - PLOT.b, height };
+}
+
+function linePath(pts) {
+  return pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join('');
+}
+
+function bandRects(svg, samples, pred, x, y0, y1, fill) {
+  let start = null;
+  for (let i = 0; i <= samples.length; i++) {
+    const on = i < samples.length && pred(samples[i]);
+    if (on && start === null) start = i;
+    if (!on && start !== null) {
+      svgEl('rect', { x: x(start), y: y0, width: Math.max(1, x(i - 1) - x(start)), height: y1 - y0, fill }, svg);
+      start = null;
+    }
+  }
+}
+
+/* ---- rendering ------------------------------------------------------- */
+
+const $ = id => document.getElementById(id);
+const tooltip = $('tooltip');
+let SIM = null;          // last simulation output
+let ZONES = [];          // parsed zones
+let scrubMarks = [];     // scrub cursor lines to move cheaply
+
+function attachHover(chartBox, svg, x, makeText) {
+  svg.addEventListener('pointermove', ev => {
+    const rect = svg.getBoundingClientRect();
+    const frac = (ev.clientX - rect.left) / rect.width * PLOT.w;
+    const minute = clamp(Math.round((frac - PLOT.l) / (PLOT.w - PLOT.l - PLOT.r) * 1439), 0, 1439);
+    const html = makeText(minute);
+    if (!html) { tooltip.style.display = 'none'; return; }
+    tooltip.innerHTML = html;
+    tooltip.style.display = 'block';
+    const tw = tooltip.offsetWidth;
+    tooltip.style.left = `${Math.min(ev.clientX + 14, window.innerWidth - tw - 8)}px`;
+    tooltip.style.top = `${ev.clientY + 14}px`;
+  });
+  svg.addEventListener('pointerleave', () => { tooltip.style.display = 'none'; });
+  svg.addEventListener('click', ev => {
+    const rect = svg.getBoundingClientRect();
+    const frac = (ev.clientX - rect.left) / rect.width * PLOT.w;
+    const minute = clamp(Math.round((frac - PLOT.l) / (PLOT.w - PLOT.l - PLOT.r) * 1439), 0, 1439);
+    $('scrub').value = minute;
+    onScrub();
+  });
+}
+
+function drawScrubCursor(svg, x, top, bottom) {
+  const line = svgEl('line', {
+    x1: x(720), y1: top, x2: x(720), y2: bottom,
+    stroke: 'var(--ink)', 'stroke-width': 1, 'stroke-dasharray': '2,3', opacity: 0.6,
+  }, svg);
+  scrubMarks.push({ line, x });
+}
+
+function drawSky() {
+  const { env, sunsetMin } = SIM;
+  // Elevation chart: domain padded to data
+  {
+    const c = makeChart($('chart-elev'), PLOT.hSky, { label: 'Sun elevation over the day' });
+    const lo = Math.floor(Math.min(...env.map(e => e.elevation)) / 10) * 10;
+    const hi = Math.ceil(Math.max(...env.map(e => e.elevation)) / 10) * 10;
+    const y = v => c.bottom - (v - lo) / (hi - lo) * (c.bottom - c.top);
+    bandRects(c.svg, env, e => e.elevation < -0.833, c.x, c.top, c.bottom, 'var(--night-wash)');
+    for (const v of [lo, 0, hi]) {
+      svgEl('line', { x1: PLOT.l, y1: y(v), x2: PLOT.w - PLOT.r, y2: y(v), stroke: v === 0 ? 'var(--axis)' : 'var(--grid)', 'stroke-width': 1 }, c.svg);
+      svgEl('text', { x: PLOT.l - 5, y: y(v) + 3, 'text-anchor': 'end', class: 'tick' }, c.svg).textContent = `${v}°`;
+    }
+    const nightElev = Number($('p-nightelev').value);
+    if (nightElev > lo && nightElev < hi) {
+      svgEl('line', { x1: PLOT.l, y1: y(nightElev), x2: PLOT.w - PLOT.r, y2: y(nightElev), stroke: 'var(--axis)', 'stroke-width': 1, 'stroke-dasharray': '3,3' }, c.svg);
+    }
+    svgEl('path', { d: linePath(env.map((e, i) => [c.x(i), y(e.elevation)])), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2 }, c.svg);
+    drawScrubCursor(c.svg, c.x, c.top, c.bottom);
+    attachHover($('chart-elev'), c.svg, c.x, m =>
+      `<div class="t">${fmtTime(m)}</div><div>elevation <b>${env[m].elevation.toFixed(1)}°</b></div>` +
+      `<div class="r">azimuth ${SIM.sun[m].azimuth.toFixed(0)}°</div>`);
+  }
+  // Illuminance chart: log scale with the policy thresholds as guides
+  {
+    const c = makeChart($('chart-lux'), PLOT.hSky, { label: 'Outdoor illuminance over the day, log scale' });
+    const y = v => c.bottom - (Math.log10(Math.max(1, v)) / 5.2) * (c.bottom - c.top);
+    bandRects(c.svg, SIM.env, e => e.elevation < -0.833, c.x, c.top, c.bottom, 'var(--night-wash)');
+    for (const v of [10, 1000, 100000]) {
+      svgEl('line', { x1: PLOT.l, y1: y(v), x2: PLOT.w - PLOT.r, y2: y(v), stroke: 'var(--grid)', 'stroke-width': 1 }, c.svg);
+      svgEl('text', { x: PLOT.l - 5, y: y(v) + 3, 'text-anchor': 'end', class: 'tick' }, c.svg).textContent = fmtLux(v);
+    }
+    const guides = [
+      [Number($('p-glarelux').value), 'glare'],
+      [Number($('p-dimlux').value), 'dim'],
+      [Number($('p-firstlux').value), 'first light'],
+      [Number($('p-nightlux').value), 'night'],
+    ];
+    for (const [v, name] of guides) {
+      if (!(v > 0)) continue;
+      svgEl('line', { x1: PLOT.l, y1: y(v), x2: PLOT.w - PLOT.r, y2: y(v), stroke: 'var(--axis)', 'stroke-width': 1, 'stroke-dasharray': '3,3' }, c.svg);
+      svgEl('text', { x: PLOT.w - PLOT.r - 2, y: y(v) - 3, 'text-anchor': 'end' }, c.svg).textContent = name;
+    }
+    svgEl('path', { d: linePath(SIM.env.map((e, i) => [c.x(i), y(e.lux)])), fill: 'none', stroke: 'var(--lux)', 'stroke-width': 2 }, c.svg);
+    drawScrubCursor(c.svg, c.x, c.top, c.bottom);
+    attachHover($('chart-lux'), c.svg, c.x, m =>
+      `<div class="t">${fmtTime(m)}</div><div>illuminance <b>${fmtLux(SIM.env[m].lux)} lx</b></div>` +
+      `<div class="r">policy: ${SIM.policyStates[m]}</div>`);
+  }
+}
+
+const MODE_VARS = ['var(--mode-1)', 'var(--mode-2)', 'var(--mode-3)', 'var(--mode-4)', 'var(--mode-5)'];
+
+function drawZones() {
+  const host = $('zones');
+  host.textContent = '';
+  for (const res of SIM.results) {
+    const { zone, samples, commands } = res;
+    const modeNames = Object.keys(zone.modes);
+    const modeFill = name => MODE_VARS[Math.max(0, modeNames.indexOf(name)) % MODE_VARS.length];
+
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="cardrow">
+        <h3></h3>
+        <span class="chip" data-role="mode"><span class="dot"></span><span data-role="mode-name"></span></span>
+        <span class="stat" data-role="stat"></span>
+      </div>
+      <div class="legend">
+        <span><i style="border-color:var(--accent)"></i>cover position</span>
+        <span><i class="dashed" style="border-color:var(--glare)"></i>glare target</span>
+        <span><b class="swatch" style="background:var(--sun-wash);border:1px solid var(--glare)"></b>sun in window</span>
+        <span><b class="swatch" style="background:var(--hold-wash);border:1px solid var(--hold)"></b>manual hold</span>
+      </div>
+      <div class="chart-box" data-role="chart"></div>
+      <details class="tbl"><summary>Hourly data table</summary><div class="tblwrap"></div></details>`;
+    panel.querySelector('h3').textContent = zone.name;
+    host.appendChild(panel);
+
+    const height = PLOT.hZone + 26; // room for the mode strip
+    const c = makeChart(panel.querySelector('[data-role=chart]'), height, { label: `${zone.name} positions over the day` });
+    const plotBottom = c.bottom - 26;
+    const y = v => plotBottom - (v / 100) * (plotBottom - c.top);
+
+    bandRects(c.svg, samples, s => s.sunIn, c.x, c.top, plotBottom, 'var(--sun-wash)');
+    bandRects(c.svg, samples, s => s.hold, c.x, c.top, plotBottom, 'var(--hold-wash)');
+    for (const v of [0, 50, 100]) {
+      svgEl('line', { x1: PLOT.l, y1: y(v), x2: PLOT.w - PLOT.r, y2: y(v), stroke: v === 0 ? 'var(--axis)' : 'var(--grid)', 'stroke-width': 1 }, c.svg);
+      svgEl('text', { x: PLOT.l - 5, y: y(v) + 3, 'text-anchor': 'end', class: 'tick' }, c.svg).textContent = v;
+    }
+    svgEl('path', {
+      d: linePath(samples.map(s => [c.x(s.minute), y(s.glarePos)])),
+      fill: 'none', stroke: 'var(--glare)', 'stroke-width': 2, 'stroke-dasharray': '5,4',
+    }, c.svg);
+    // step line for actual position
+    let d = `M${c.x(0).toFixed(1)},${y(samples[0].coverPos).toFixed(1)}`;
+    for (let i = 1; i < samples.length; i++) {
+      if (samples[i].coverPos !== samples[i - 1].coverPos) {
+        d += `H${c.x(i).toFixed(1)}V${y(samples[i].coverPos).toFixed(1)}`;
+      }
+    }
+    d += `H${c.x(1439).toFixed(1)}`;
+    svgEl('path', { d, fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2.5, 'stroke-linejoin': 'round' }, c.svg);
+    for (const cmd of commands) {
+      svgEl('circle', {
+        cx: c.x(cmd.minute), cy: y(cmd.target), r: 4,
+        fill: 'var(--accent)', stroke: 'var(--surface)', 'stroke-width': 2,
+      }, c.svg);
+    }
+    // mode strip
+    let runStart = 0;
+    for (let i = 1; i <= samples.length; i++) {
+      if (i === samples.length || samples[i].mode !== samples[runStart].mode) {
+        const x0 = c.x(runStart), x1 = c.x(i - 1);
+        svgEl('rect', {
+          x: x0, y: plotBottom + 8, width: Math.max(1, x1 - x0), height: 14, rx: 3,
+          fill: modeFill(samples[runStart].mode),
+        }, c.svg);
+        if (x1 - x0 > 46) {
+          const label = svgEl('text', {
+            x: (x0 + x1) / 2, y: plotBottom + 19, 'text-anchor': 'middle',
+          }, c.svg);
+          label.textContent = samples[runStart].mode;
+          label.style.fill = 'var(--ink-2)';
+        }
+        runStart = i;
+      }
+    }
+    drawScrubCursor(c.svg, c.x, c.top, plotBottom);
+    attachHover(panel, c.svg, c.x, m => {
+      const s = samples[m];
+      return `<div class="t">${fmtTime(m)} — ${zone.name}</div>` +
+        `<div>mode <b>${s.mode}</b> · cover <b>${s.coverPos}</b></div>` +
+        `<div>glare target ${s.glarePos}${s.sunIn ? ` (${s.constraint})` : ''}</div>` +
+        `<div class="r">${s.reason}${s.hold ? ' · hold' : ''} · ${fmtLux(SIM.env[m].lux)} lx · ${SIM.env[m].elevation.toFixed(0)}°</div>`;
+    });
+
+    // hourly table
+    const tbl = document.createElement('table');
+    tbl.innerHTML = '<thead><tr><th>time</th><th>mode</th><th>glare</th><th>target</th><th>cover</th><th>reason</th></tr></thead>';
+    const tb = document.createElement('tbody');
+    for (let h = 0; h < 24; h++) {
+      const s = samples[h * 60];
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${fmtTime(h * 60)}</td><td>${s.mode}</td><td>${s.glarePos}</td><td>${s.target ?? '—'}</td><td>${s.coverPos}</td><td>${s.reason}</td>`;
+      tb.appendChild(tr);
+    }
+    tbl.appendChild(tb);
+    panel.querySelector('.tblwrap').appendChild(tbl);
+    res.updateHeader = minute => {
+      const s = samples[minute];
+      const chip = panel.querySelector('[data-role=mode]');
+      chip.querySelector('.dot').style.background = modeFill(s.mode).replace('var(', '').includes('--') ? '' : '';
+      chip.querySelector('.dot').style.background = modeFill(s.mode);
+      panel.querySelector('[data-role=mode-name]').textContent = s.mode;
+      panel.querySelector('[data-role=stat]').innerHTML =
+        `cover <b>${s.coverPos}</b> · glare target <b>${s.glarePos}</b> · ${s.reason}${s.hold ? ' · <b>hold</b>' : ''}`;
+    };
+  }
+}
+
+/* ---- cross-section --------------------------------------------------- */
+
+function drawCrossSection(minute) {
+  const host = $('xsect');
+  const caption = $('xsect-caption');
+  const zoneId = $('xsect-zone').value;
+  const res = SIM.results.find(r => r.zone.id === zoneId) || SIM.results[0];
+  if (!res) return;
+  const { zone } = res;
+  const s = res.samples[minute];
+  const geo = zone.geometry;
+  const ez = geo.eyeZone;
+
+  const depth = Math.max(ez ? Math.min(ez.far, 12) + 0.8 : geo.protectDepth + 1.5,
+    ...geo.reflectors.map(r => Number.isFinite(r.end) ? r.end + 0.5 : 0), 3);
+  const topM = Math.max(geo.sillHeight + geo.height, ez ? ez.high : 0, 2.1) + 0.35;
+
+  const W = 620, H = 240, L = 30, R = 12, T = 10, B = 26;
+  const xm = m => L + (m / depth) * (W - L - R);
+  const ym = m => H - B - (m / topM) * (H - T - B);
+
+  host.textContent = '';
+  const svg = svgEl('svg', { class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Cross-section of ${zone.name}` }, null);
+  host.appendChild(svg);
+
+  // floor + meter ticks
+  svgEl('line', { x1: L, y1: ym(0), x2: W - R, y2: ym(0), stroke: 'var(--axis)', 'stroke-width': 2 }, svg);
+  for (let m = 0; m <= depth; m++) {
+    svgEl('line', { x1: xm(m), y1: ym(0), x2: xm(m), y2: ym(0) + 4, stroke: 'var(--axis)' }, svg);
+    svgEl('text', { x: xm(m), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, svg).textContent = `${m}m`;
+  }
+  // wall + glass
+  svgEl('line', { x1: L, y1: ym(0), x2: L, y2: T, stroke: 'var(--axis)', 'stroke-width': 2 }, svg);
+  svgEl('line', { x1: L, y1: ym(geo.sillHeight), x2: L, y2: ym(geo.sillHeight + geo.height), stroke: 'var(--accent)', 'stroke-width': 5, opacity: 0.35 }, svg);
+
+  const openH = geo.height * (s.coverPos / 100);       // uncovered glass above the sill
+  const shadeTop = geo.sillHeight + geo.height;
+  // shade covers from the top down to sill + openH
+  if (s.coverPos < 100) {
+    svgEl('line', { x1: L, y1: ym(shadeTop), x2: L, y2: ym(geo.sillHeight + openH), stroke: 'var(--ink)', 'stroke-width': 5 }, svg);
+  }
+
+  // eye zone
+  if (ez) {
+    const farClip = Math.min(ez.far, depth);
+    svgEl('rect', {
+      x: xm(ez.near), y: ym(ez.high), width: xm(farClip) - xm(ez.near), height: ym(ez.low) - ym(ez.high),
+      fill: 'var(--hold-wash)', stroke: 'var(--hold)', 'stroke-width': 1, 'stroke-dasharray': '4,3', rx: 3,
+    }, svg);
+    svgEl('text', { x: xm(ez.near) + 5, y: ym(ez.high) + 12 }, svg).textContent = 'eye zone';
+  }
+  // reflectors
+  for (const ref of geo.reflectors) {
+    const end = Math.min(Number.isFinite(ref.end) ? ref.end : depth, depth);
+    svgEl('line', { x1: xm(ref.start), y1: ym(ref.height), x2: xm(end), y2: ym(ref.height), stroke: 'var(--lux)', 'stroke-width': 3, opacity: 0.8 }, svg);
+  }
+
+  let capText = `${zone.name} at ${fmtTime(minute)} — mode ${s.mode}, position ${s.coverPos}.`;
+  if (s.sunIn) {
+    const t = Math.tan(s.profile * RAD);
+    // sunlit wedge between the sill ray and the shade-edge ray
+    const edgeH = geo.sillHeight + openH;
+    const rayEnd = h0 => { // ray from window height h0 with slope -t; return [x,y] where it exits
+      if (t <= 1e-9) return [depth, h0];
+      const xFloor = h0 / t;
+      return xFloor <= depth ? [xFloor, 0] : [depth, h0 - depth * t];
+    };
+    const pSill = rayEnd(geo.sillHeight);
+    const pEdge = rayEnd(edgeH);
+    const wedge = [
+      [0, edgeH], [pEdge[0], pEdge[1]],
+    ];
+    if (pEdge[1] === 0 && pSill[1] === 0) wedge.push([pSill[0], 0]);
+    else if (pEdge[1] > 0 && pSill[1] > 0) wedge.push([depth, pSill[1]]);
+    else { wedge.push([depth, 0]); wedge.push([pSill[0], 0]); }
+    wedge.push([0, geo.sillHeight]);
+    svgEl('path', {
+      d: wedge.map((p, i) => `${i ? 'L' : 'M'}${xm(p[0]).toFixed(1)},${ym(p[1]).toFixed(1)}`).join('') + 'Z',
+      fill: 'var(--sun-wash)',
+    }, svg);
+    svgEl('line', {
+      x1: xm(0), y1: ym(edgeH), x2: xm(pEdge[0]), y2: ym(pEdge[1]),
+      stroke: 'var(--glare)', 'stroke-width': 2,
+    }, svg);
+    // reflected continuation of the shade-edge ray, if it lands on a reflector
+    if (pEdge[1] === 0 || geo.reflectors.length) {
+      for (const ref of geo.reflectors) {
+        if (t <= 1e-9) break;
+        const hit = (edgeH - ref.height) / t;
+        const end = Number.isFinite(ref.end) ? ref.end : depth;
+        if (hit >= ref.start && hit <= Math.min(end, depth)) {
+          const upEnd = Math.min(depth, hit + (topM - ref.height) / t);
+          svgEl('line', {
+            x1: xm(hit), y1: ym(ref.height), x2: xm(upEnd), y2: ym(ref.height + (upEnd - hit) * t),
+            stroke: 'var(--glare)', 'stroke-width': 2, 'stroke-dasharray': '4,3',
+          }, svg);
+          break;
+        }
+      }
+    }
+    capText += ` Sun in window: γ ${s.gamma.toFixed(0)}°, profile ${s.profile.toFixed(1)}°, ` +
+      `glare target ${s.glarePos} (${s.constraint} constraint).`;
+  } else {
+    capText += ' Sun is not in this window (out of field of view, below the elevation floor, or grazing).';
+  }
+  caption.textContent = capText;
+}
+
+/* ---- wiring ---------------------------------------------------------- */
+
+const DEFAULT_YAML = `# shade_engine zone configuration (same schema as configuration.yaml)
+zones:
+  living_west:
+    covers: [cover.living_room_west]
+    window:
+      azimuth: 270          # due west
+      fov_left: 90
+      fov_right: 90
+      height: 1.6           # glass height, m
+      sill_height: 0.3
+      eye_zone:             # keep sun out of seated eye band
+        height: [1.0, 1.8]  # m above the floor
+        depth: [3.0, 6.0]   # m from the window
+      reflectors:           # glossy floor can bounce sun upward
+        - height: 0.0
+          from: 0.0
+          to: 2.0
+    modes:
+      open: 100
+      glare:                # calculator passthrough, never below 25
+        min: 25
+      night: 25
+    default_mode: open
+    motion:
+      deadband: 3
+      min_interval: 300     # seconds between commands
+  kitchen:
+    covers: [cover.kitchen]
+    window:
+      azimuth: 268
+      height: 0.74
+      sill_height: 0.9
+      protect_depth: 1.7    # classic floor-depth model
+      min_elevation: 5
+    modes:
+      open: 100
+      glare: glare
+      night: 37
+    default_mode: open
+`;
+
+function readPolicy() {
+  const floor = $('p-floor').value.split(':');
+  return {
+    firstLux: Number($('p-firstlux').value),
+    floorMin: Number(floor[0]) * 60 + Number(floor[1] || 0),
+    glareLux: Number($('p-glarelux').value),
+    relElev: Number($('p-relelev').value),
+    dimLux: Number($('p-dimlux').value),
+    nightLux: Number($('p-nightlux').value),
+    nightElev: Number($('p-nightelev').value),
+  };
+}
+
+function rebuildZoneControls() {
+  const ov = $('overrides');
+  ov.textContent = '';
+  const mz = $('m-zone');
+  mz.textContent = '';
+  for (const z of ZONES) {
+    const row = document.createElement('div');
+    row.className = 'field';
+    const label = document.createElement('label');
+    label.textContent = `${z.name} mode`;
+    const sel = document.createElement('select');
+    sel.id = `ov-${z.id}`;
+    sel.append(new Option('Follow policy', 'policy'));
+    for (const m of Object.keys(z.modes)) sel.append(new Option(m, m));
+    sel.addEventListener('change', rerun);
+    label.htmlFor = sel.id;
+    row.append(label, sel);
+    ov.appendChild(row);
+    mz.append(new Option(z.name, z.id));
+  }
+}
+
+function readManual() {
+  if (!$('m-on').checked || !ZONES.length) return null;
+  const t = $('m-time').value.split(':');
+  return {
+    zone: $('m-zone').value || ZONES[0].id,
+    minute: Number(t[0]) * 60 + Number(t[1] || 0),
+    position: clamp(Number($('m-pos').value), 0, 100),
+  };
+}
+
+function rerun() {
+  if (!ZONES.length) return;
+  const overrides = {};
+  for (const z of ZONES) {
+    const sel = $(`ov-${z.id}`);
+    if (sel) overrides[z.id] = sel.value;
+  }
+  scrubMarks = [];
+  SIM = simulate({
+    zones: ZONES,
+    date: $('in-date').value,
+    lat: Number($('in-lat').value),
+    lon: Number($('in-lon').value),
+    sky: $('in-sky').value,
+    policy: readPolicy(),
+    manual: readManual(),
+    overrides,
+  });
+  drawSky();
+  drawZones();
+  const xsel = $('xsect-zone');
+  const prev = xsel.value;
+  xsel.textContent = '';
+  for (const z of ZONES) xsel.append(new Option(z.name, z.id));
+  if ([...xsel.options].some(o => o.value === prev)) xsel.value = prev;
+  onScrub();
+}
+
+function onScrub() {
+  const minute = Number($('scrub').value);
+  $('scrub-time').textContent = fmtTime(minute);
+  for (const m of scrubMarks) {
+    m.line.setAttribute('x1', m.x(minute));
+    m.line.setAttribute('x2', m.x(minute));
+  }
+  if (SIM) {
+    for (const r of SIM.results) r.updateHeader && r.updateHeader(minute);
+    drawCrossSection(minute);
+  }
+}
+
+function applyYaml() {
+  const errBox = $('yaml-err');
+  try {
+    ZONES = buildZones(parseYAML($('yaml').value));
+    errBox.classList.remove('show');
+    errBox.textContent = '';
+    rebuildZoneControls();
+    rerun();
+  } catch (e) {
+    errBox.textContent = e.message;
+    errBox.classList.add('show');
+  }
+}
+
+function init() {
+  const today = new Date();
+  $('in-date').value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const params = new URLSearchParams(location.search);
+  if (params.get('t')) {
+    const t = params.get('t');
+    const asMin = /^\d{1,2}:\d{2}$/.test(t) ? t.split(':').reduce((h, m) => Number(h) * 60 + Number(m)) : Number(t);
+    if (asMin >= 0 && asMin <= 1439) $('scrub').value = asMin;
+  }
+  if (params.get('date')) $('in-date').value = params.get('date');
+  $('yaml').value = DEFAULT_YAML;
+  $('apply').addEventListener('click', applyYaml);
+  $('scrub').addEventListener('input', onScrub);
+  $('xsect-zone').addEventListener('change', () => onScrub());
+  for (const id of ['in-date', 'in-lat', 'in-lon', 'in-sky',
+    'p-firstlux', 'p-floor', 'p-glarelux', 'p-relelev', 'p-dimlux', 'p-nightlux', 'p-nightelev',
+    'm-on', 'm-zone', 'm-time', 'm-pos']) {
+    $(id).addEventListener('change', rerun);
+  }
+  applyYaml();
+}
+init();
+</script>
+</body>
+</html>
