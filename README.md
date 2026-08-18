@@ -1,4 +1,4 @@
-<img src="brands/shade_engine/icon.png" alt="Shade Engine — a half-drawn shade over a sunset window" width="96" align="right">
+<img src="custom_components/shade_engine/brand/icon.png" alt="Shade Engine — a half-drawn shade over a sunset window" width="96" align="right">
 
 # Shade Engine
 
