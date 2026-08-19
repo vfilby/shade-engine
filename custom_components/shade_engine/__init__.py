@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import logging
 import math
+from pathlib import Path
 
 import voluptuous as vol
 
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -30,6 +33,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 from datetime import timedelta
 
@@ -80,10 +84,18 @@ from .core import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT]
+PLATFORMS = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.SELECT,
+    Platform.SWITCH,
+]
 
 SUN_ENTITY = "sun.sun"
 TICK_INTERVAL = timedelta(seconds=60)
+
+CARD_FILENAME = "shade-engine-card.js"
+CARD_URL = f"/{DOMAIN}/{CARD_FILENAME}"
 
 
 def _mode_target(value):
@@ -411,6 +423,25 @@ class ShadeEngine:
         if mode in zone.core.modes:
             zone.core.mode = mode
 
+    async def async_set_enabled(self, zone_id: str, enabled: bool) -> None:
+        """Turn the engine on or off for one zone.
+
+        Re-enabling reconciles immediately (bypassing the rate limit, but
+        never a hold) so the zone converges without waiting for a tick.
+        """
+        zone = self.zones[zone_id]
+        if zone.core.enabled == enabled:
+            return
+        zone.core.enabled = enabled
+        _LOGGER.info("[%s] control %s", zone_id, "enabled" if enabled else "disabled")
+        async_dispatcher_send(self.hass, signal_zone_update(zone_id))
+        await self._evaluate(zone, forced=enabled)
+
+    @callback
+    def restore_enabled(self, zone_id: str, enabled: bool) -> None:
+        """Adopt a restored on/off state at startup without commanding."""
+        self.zones[zone_id].core.enabled = enabled
+
     def _schedule_hold_expiry(self, zone: Zone) -> None:
         if (timer := self._hold_timers.pop(zone.zone_id, None)) is not None:
             timer()
@@ -449,6 +480,22 @@ class ShadeEngine:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Shade Engine from YAML configuration."""
+    # Serve the bundled Lovelace card and register it as a frontend resource
+    # so `custom:shade-engine-card` works with zero manual resource setup.
+    # Registered even when the YAML is gone, so existing dashboards degrade
+    # to the card's own "entity not found" message rather than a red box.
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                CARD_URL,
+                str(Path(__file__).parent / "www" / CARD_FILENAME),
+                cache_headers=True,
+            )
+        ]
+    )
+    integration = await async_get_integration(hass, DOMAIN)
+    add_extra_js_url(hass, f"{CARD_URL}?v={integration.version}")
+
     conf = config.get(DOMAIN)
     if conf is None:
         # YAML was removed; drop the imported entry so entities don't linger.

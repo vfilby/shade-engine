@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "custom_components" / "sha
 
 from core import (  # noqa: E402
     REASON_COMMAND,
+    REASON_DISABLED,
     REASON_HOLD,
     REASON_IN_SYNC,
     REASON_RATE_LIMITED,
@@ -153,3 +154,53 @@ def test_unavailable_cover_is_skipped():
     d = zone.evaluate(1000, 100, {"cover.a": None, "cover.b": 37})
     assert d.reason == REASON_COMMAND
     assert d.covers == ["cover.b"]
+
+
+def test_disabled_never_commands_even_forced():
+    zone = make_zone("open")
+    zone.enabled = False
+    d = zone.evaluate(1000, 100, {"cover.a": 37, "cover.b": 37}, forced=True)
+    assert d.reason == REASON_DISABLED
+    assert d.covers == []
+    assert zone.last_command_ts is None
+
+
+def test_disabled_takes_precedence_over_hold():
+    zone = make_zone("open")
+    zone.start_hold(1000)
+    zone.enabled = False
+    d = zone.evaluate(1001, 100, {"cover.a": 37, "cover.b": 37})
+    assert d.reason == REASON_DISABLED
+
+
+def test_reenable_converges():
+    zone = make_zone("open")
+    zone.enabled = False
+    zone.evaluate(1000, 100, {"cover.a": 37, "cover.b": 37})
+    zone.enabled = True
+    d = zone.evaluate(1002, 100, {"cover.a": 37, "cover.b": 37}, forced=True)
+    assert d.reason == REASON_COMMAND
+    assert d.covers == ["cover.a", "cover.b"]
+
+
+def test_manual_move_while_disabled_adopts_without_hold():
+    zone = make_zone("open")
+    d = zone.evaluate(1000, 100, {"cover.a": 100, "cover.b": 100})
+    assert d.reason == REASON_IN_SYNC
+    zone.enabled = False
+    # Human moves a cover while control is off: adopt, but no hold.
+    assert not zone.report_position("cover.a", 25, now=20000)
+    assert not zone.hold_active(20001)
+    assert zone.last_commanded["cover.a"] == 25
+    # Re-enabling still converges to the mode target (no hold in the way).
+    zone.enabled = True
+    d = zone.evaluate(20060, 100, {"cover.a": 25, "cover.b": 100}, forced=True)
+    assert d.reason == REASON_COMMAND
+    assert d.covers == ["cover.a"]
+
+
+def test_disabled_still_seeds_baselines():
+    zone = make_zone("open")
+    zone.enabled = False
+    zone.evaluate(1000, 100, {"cover.a": 42, "cover.b": None})
+    assert zone.last_commanded == {"cover.a": 42}

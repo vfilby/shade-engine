@@ -381,7 +381,7 @@ function glare(sunAz, sunEl, geo) {
 
 /* ---- core.py port --------------------------------------------------- */
 
-const REASON = { COMMAND: 'command', HOLD: 'hold_active', IN_SYNC: 'in_sync', RATE: 'rate_limited' };
+const REASON = { COMMAND: 'command', DISABLED: 'disabled', HOLD: 'hold_active', IN_SYNC: 'in_sync', RATE: 'rate_limited' };
 
 function resolveMode(target, glarePos) {
   if (!target.dynamic) return target.fixed;
@@ -394,6 +394,7 @@ class ZoneCore {
     this.modes = modes;       // name -> {fixed}|{dynamic,min,max}
     this.motion = motion;     // {deadband, minInterval, holdDuration, settle} seconds
     this.mode = mode;
+    this.enabled = true;      // the per-zone control switch; sim never flips it
     this.lastCommanded = new Map();
     this.lastCommandTs = null;
     this.holdUntil = null;
@@ -410,6 +411,7 @@ class ZoneCore {
     if (Math.abs(position - commanded) <= this.motion.deadband) return false;
     if (this.lastCommandTs !== null && now - this.lastCommandTs < this.motion.settle) return false;
     this.lastCommanded.set(cover, position);
+    if (!this.enabled) return false;  // adopt baseline, but no hold while off
     this.startHold(now);
     return true;
   }
@@ -417,6 +419,7 @@ class ZoneCore {
     for (const [cover, position] of current) {
       if (position !== null && !this.lastCommanded.has(cover)) this.lastCommanded.set(cover, position);
     }
+    if (!this.enabled) return { reason: REASON.DISABLED, target: null, covers: [] };
     if (this.holdActive(now)) return { reason: REASON.HOLD, target: null, covers: [] };
     const target = this.target(glarePos);
     const movers = this.covers.filter(c => {
