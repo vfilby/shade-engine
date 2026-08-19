@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 # Reasons an evaluation may decline to command. Exposed on the target sensor
 # so "why didn't it move?" is answerable from the UI.
 REASON_COMMAND = "command"
+REASON_DISABLED = "disabled"
 REASON_HOLD = "hold_active"
 REASON_IN_SYNC = "in_sync"
 REASON_RATE_LIMITED = "rate_limited"
@@ -68,6 +69,7 @@ class ZoneCore:
     modes: dict[str, ModeTarget]
     motion: MotionConfig
     mode: str
+    enabled: bool = True
     last_commanded: dict[str, int] = field(default_factory=dict)
     last_command_ts: float | None = None
     hold_until: float | None = None
@@ -117,6 +119,11 @@ class ZoneCore:
             return False
         # A human moved this cover: adopt their position and stand down.
         self.last_commanded[cover] = position
+        if not self.enabled:
+            # Control is off; the engine wasn't going to move anyway, so a
+            # manual move needs no hold. Adopting the baseline above keeps a
+            # later re-enable from misreading this position as manual.
+            return False
         self.start_hold(now)
         return True
 
@@ -133,7 +140,7 @@ class ZoneCore:
 
         ``current`` maps cover -> reported position (None when unavailable).
         ``forced`` bypasses rate limiting (mode changes, explicit services)
-        but never bypasses an active hold.
+        but never bypasses an active hold or a disabled zone.
         """
         # Adopt baselines for covers we have never commanded. Without this,
         # the first manual move after startup is mistaken for the baseline in
@@ -143,6 +150,9 @@ class ZoneCore:
         for cover, position in current.items():
             if position is not None:
                 self.last_commanded.setdefault(cover, position)
+
+        if not self.enabled:
+            return Decision(REASON_DISABLED)
 
         if self.hold_active(now):
             return Decision(REASON_HOLD)

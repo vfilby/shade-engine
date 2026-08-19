@@ -3,12 +3,12 @@
   "name": "Shade Engine",
   "codeowners": ["@vfilby"],
   "config_flow": true,
-  "dependencies": ["sun"],
+  "dependencies": ["frontend", "http", "sun"],
   "documentation": "https://github.com/vfilby/shade-engine",
   "integration_type": "hub",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/vfilby/shade-engine/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

@@ -93,6 +93,11 @@ class TargetSensor(_ZoneSensor):
         core = self._zone.core
         decision = self._zone.last_decision
         return {
+            # zone_id and covers let the bundled Lovelace card find the zone
+            # (service calls take the zone id) and show live cover positions.
+            "zone_id": self._zone.zone_id,
+            "covers": list(core.covers),
+            "enabled": core.enabled,
             "mode": core.mode,
             "last_decision": decision.reason if decision else None,
             "hold_until": (

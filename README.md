@@ -143,9 +143,10 @@ disabled.)
 |---|---|
 | `select.<zone>_shade_mode` | current mode — **the only thing policy writes** |
 | `sensor.<zone>_glare_position` | calculator output; attrs: `gamma`, `profile_angle`, `sun_in_window`, `constraint` (`direct` / `reflected` / `none` — what bound the position) |
-| `sensor.<zone>_shade_target` | what the actuator wants; attrs: `mode`, `last_decision` (`command` / `in_sync` / `rate_limited` / `hold_active`), `hold_until`, `last_command` |
+| `sensor.<zone>_shade_target` | what the actuator wants; attrs: `zone_id`, `covers`, `enabled`, `mode`, `last_decision` (`command` / `in_sync` / `rate_limited` / `hold_active` / `disabled`), `hold_until`, `last_command` |
 | `binary_sensor.<zone>_sun_in_window` | direct sun geometrically possible now |
-| `binary_sensor.<zone>_shade_hold` | a human moved a cover; engine is standing down |
+| `binary_sensor.<zone>_shade_hold` | a human moved a cover; engine is standing down; attr `hold_until` |
+| `switch.<zone>_shade_control` | master on/off for the zone — off means the engine never commands these covers (no expiry, survives restarts); turning it back on reconciles immediately |
 
 ## Services
 
@@ -154,6 +155,47 @@ disabled.)
 | `shade_engine.hold` | start/refresh a hold (`zone`, optional `duration` seconds) |
 | `shade_engine.release` | clear a hold and reconcile — use in automations that must win over a manual move (e.g. privacy close at dusk) |
 | `shade_engine.reconcile` | evaluate immediately, bypassing rate limit (`zone` optional) |
+
+## Dashboard card
+
+The integration bundles a Lovelace card and registers it as a frontend
+resource automatically — no HACS frontend install, no manual resource entry.
+Add it to any dashboard:
+
+```yaml
+type: custom:shade-engine-card
+entity: sensor.kitchen_shade_target
+```
+
+or, equivalently, by zone id from your YAML config:
+
+```yaml
+type: custom:shade-engine-card
+zone: kitchen
+```
+
+One card per zone shows:
+
+- **Target / current / glare** positions side by side (current reads the
+  covers live; multiple covers show as `42 / 40`).
+- **Mode chips** — every configured mode, tap to switch (writes the same
+  `select` your automations do).
+- **Sun-in-window** indicator in the header.
+- **Manual hold banner** with a live countdown to `hold_until` and a
+  **Release** button (`shade_engine.release`); when no hold is active, a
+  **Hold** button pauses the zone for its configured `hold_duration`.
+- **Control toggle** — the zone's `switch.<zone>_shade_control`; off greys
+  the card and the engine stands down entirely.
+- A status badge explaining the last decision (`In sync`, `Rate limited —
+  retrying`, `Manual hold`, `Control off`, `Moving`).
+
+All sibling entities are derived from the target sensor's object-id prefix.
+If you've renamed entities, point the card at them explicitly with
+`mode_entity`, `hold_entity`, `sun_entity`, `glare_entity`, and
+`switch_entity`; `title` overrides the header.
+
+The card appears in the dashboard card picker as **Shade Engine Card**
+(after one browser refresh following installation or upgrade).
 
 ## Behavior guarantees
 
@@ -165,6 +207,10 @@ disabled.)
   `binary_sensor` with a `hold_until` timestamp; `shade_engine.release`
   clears it. A `forced` evaluation (mode change, reconcile service) bypasses
   rate limiting but **never** bypasses a hold.
+- **Off means off.** `switch.<zone>_shade_control` is a hard gate: while it
+  is off the engine never commands the zone's covers, manual moves are
+  adopted silently (no hold), and nothing — not even a forced reconcile —
+  overrides it. It restores across restarts.
 - **Every non-move is explained.** `sensor.<zone>_shade_target` always says
   why the engine last declined to act.
 
