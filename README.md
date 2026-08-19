@@ -186,13 +186,18 @@ One card per zone shows:
   **Hold** button pauses the zone for its configured `hold_duration`.
 - **Control toggle** — the zone's `switch.<zone>_shade_control`; off greys
   the card and the engine stands down entirely.
+- **History strip** — the shade target as a step line over the last
+  `graph_hours` (default 24), drawn over the sun's elevation curve
+  (above-horizon only, computed locally from your home coordinates — not
+  recorder data). Disable with `graph: false`.
 - A status badge explaining the last decision (`In sync`, `Rate limited —
   retrying`, `Manual hold`, `Control off`, `Moving`).
 
 All sibling entities are derived from the target sensor's object-id prefix.
 If you've renamed entities, point the card at them explicitly with
 `mode_entity`, `hold_entity`, `sun_entity`, `glare_entity`, and
-`switch_entity`; `title` overrides the header.
+`switch_entity`; `title` overrides the header; `graph: false` /
+`graph_hours: 48` tune the history strip.
 
 The card appears in the dashboard card picker as **Shade Engine Card**
 (after one browser refresh following installation or upgrade).
