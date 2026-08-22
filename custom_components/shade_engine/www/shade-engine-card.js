@@ -15,7 +15,7 @@
  * the history strip, graph_hours (default 24) sets its window.
  */
 
-const CARD_VERSION = "0.5.0";
+const CARD_VERSION = "0.5.1";
 
 const RAD = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -473,7 +473,24 @@ class ShadeEngineCard extends HTMLElement {
   }
 }
 
-customElements.define("shade-engine-card", ShadeEngineCard);
+/* Register the element only once Home Assistant's app has booted.
+ *
+ * The integration loads this module via `extra_module_url`, which the index
+ * page imports concurrently with app.js. Since HA 2026.8 the frontend installs
+ * the scoped-custom-element-registry polyfill, which REPLACES
+ * window.customElements with a fresh registry; anything defined on the native
+ * registry before that swap is invisible to customElements.get() and the
+ * dashboard shows "Custom element doesn't exist". With a warm cache this
+ * module reliably wins that race and loses the registry, so wait for HA's root
+ * element and then define on whatever registry is current. */
+function registerCard() {
+  const registry = window.customElements;
+  if (registry.get("shade-engine-card")) return;
+  registry.define("shade-engine-card", ShadeEngineCard);
+}
+customElements
+  .whenDefined("home-assistant")
+  .then(registerCard, registerCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
