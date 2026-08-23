@@ -186,7 +186,8 @@ One card per zone shows:
   **Hold** button pauses the zone for its configured `hold_duration`.
 - **Control toggle** — the zone's `switch.<zone>_shade_control`; off greys
   the card and the engine stands down entirely.
-- **History strip** — the shade target as a step line over the last
+- **History strip** — the shade target (solid) and each cover's actual
+  position (dashed, from recorder history) as step lines over the last
   `graph_hours` (default 24), drawn over the sun's elevation curve
   (above-horizon only, computed locally from your home coordinates — not
   recorder data). Disable with `graph: false`.

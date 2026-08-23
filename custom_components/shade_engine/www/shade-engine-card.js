@@ -15,7 +15,7 @@
  * the history strip, graph_hours (default 24) sets its window.
  */
 
-const CARD_VERSION = "0.5.1";
+const CARD_VERSION = "0.6.0";
 
 const RAD = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -293,6 +293,13 @@ class ShadeEngineCard extends HTMLElement {
             stroke-width: 1; vector-effect: non-scaling-stroke; }
           shade-engine-card .graph .target { fill: none; stroke: var(--primary-color); stroke-width: 2;
             vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+          shade-engine-card .graph .actual { fill: none; stroke: var(--primary-text-color); stroke-width: 1.5;
+            stroke-dasharray: 3, 3; opacity: 0.8; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+          shade-engine-card .graph .legend { display: flex; gap: 14px; padding-top: 4px; font-size: 0.7em;
+            color: var(--secondary-text-color); }
+          shade-engine-card .graph .legend span { display: inline-flex; align-items: center; gap: 5px; }
+          shade-engine-card .graph .legend i { display: inline-block; width: 14px; border-top: 2px solid var(--primary-color); }
+          shade-engine-card .graph .legend i.actual { border-top: 2px dashed var(--secondary-text-color); }
           shade-engine-card .graph .tick { stroke: var(--divider-color); stroke-width: 1;
             stroke-dasharray: 2, 4; vector-effect: non-scaling-stroke; }
           shade-engine-card .toggle { position: relative; display: inline-block; width: 36px; height: 20px; }
@@ -344,8 +351,13 @@ class ShadeEngineCard extends HTMLElement {
     return clamp(Number(this._config.graph_hours) || 24, 1, 48);
   }
 
+  _graphCovers(ids) {
+    const target = this._hass.states[ids.target];
+    return (target && target.attributes.covers) || [];
+  }
+
   _graphKey(ids) {
-    return `${ids.target}|${this._graphHours()}`;
+    return `${ids.target}|${this._graphCovers(ids).join(",")}|${this._graphHours()}`;
   }
 
   _maybeFetchHistory(ids) {
@@ -358,25 +370,45 @@ class ShadeEngineCard extends HTMLElement {
     const now = Date.now();
     const start = new Date(now - this._graphHours() * 3600000).toISOString();
     const end = encodeURIComponent(new Date(now).toISOString());
-    this._hass
-      .callApi(
-        "GET",
-        `history/period/${start}?filter_entity_id=${ids.target}&end_time=${end}&minimal_response&no_attributes`
-      )
-      .then((res) => {
-        const points = ((res && res[0]) || [])
-          .map((r) => ({ t: Date.parse(r.last_changed || r.last_updated), v: parseFloat(r.state) }))
-          .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
-        this._history = { key, fetched: Date.now(), points };
-      })
-      .catch(() => {
-        this._history = { key, fetched: Date.now(), points: [] };
+    const covers = this._graphCovers(ids);
+    const toPoints = (rows, value) =>
+      (rows || [])
+        .map((r) => ({ t: Date.parse(r.last_updated || r.last_changed), v: value(r) }))
+        .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
+    const targetReq = this._hass.callApi(
+      "GET",
+      `history/period/${start}?filter_entity_id=${ids.target}&end_time=${end}&minimal_response&no_attributes`
+    );
+    // Cover position lives in attributes, so this one needs the full rows.
+    const coversReq = covers.length
+      ? this._hass.callApi(
+          "GET",
+          `history/period/${start}?filter_entity_id=${covers.join(",")}&end_time=${end}&significant_changes_only=0`
+        )
+      : Promise.resolve([]);
+    Promise.all([targetReq.catch(() => []), coversReq.catch(() => [])])
+      .then(([tRes, cRes]) => {
+        const points = toPoints(tRes && tRes[0], (r) => parseFloat(r.state));
+        const actual = {};
+        for (const rows of cRes || []) {
+          if (!rows || !rows.length) continue;
+          actual[rows[0].entity_id] = toPoints(rows, (r) =>
+            r.attributes ? parseFloat(r.attributes.current_position) : NaN
+          );
+        }
+        this._history = { key, fetched: Date.now(), points, actual };
       })
       .finally(() => {
         this._historyInFlight = false;
         this._rendered = null;
         if (this._hass) this._render();
       });
+  }
+
+  _stepPath(pts, x, yT, W) {
+    let d = `M0,${yT(pts[0].v).toFixed(1)}`;
+    for (const p of pts) d += ` H${x(p.t).toFixed(1)} V${yT(p.v).toFixed(1)}`;
+    return d + ` H${W}`;
   }
 
   _graphSvg(ids, currentTarget) {
@@ -404,18 +436,22 @@ class ShadeEngineCard extends HTMLElement {
       elevLine = `<path class="elevline" d="M${pts.join(" L")}"/>`;
     }
 
-    // Shade target as a step line from recorder history + the live value.
+    // Shade target and actual cover position(s) as step lines from recorder
+    // history, each extended with the live value so the line reaches "now".
+    const yT = (v) => H - (clamp(v, 0, 100) / 100) * H;
     let targetLine = "";
-    const hist = this._history && this._history.key === this._graphKey(ids) ? this._history.points : null;
+    let actualLines = "";
+    const hist = this._history && this._history.key === this._graphKey(ids) ? this._history : null;
     if (hist) {
-      const pts = hist.slice();
+      const pts = hist.points.slice();
       if (Number.isFinite(currentTarget)) pts.push({ t: now, v: currentTarget });
-      if (pts.length) {
-        const yT = (v) => H - (clamp(v, 0, 100) / 100) * H;
-        let d = `M0,${yT(pts[0].v).toFixed(1)}`;
-        for (const p of pts) d += ` H${x(p.t).toFixed(1)} V${yT(p.v).toFixed(1)}`;
-        d += ` H${W}`;
-        targetLine = `<path class="target" d="${d}"/>`;
+      if (pts.length) targetLine = `<path class="target" d="${this._stepPath(pts, x, yT, W)}"/>`;
+      for (const cover of this._graphCovers(ids)) {
+        const cpts = ((hist.actual && hist.actual[cover]) || []).slice();
+        const st = this._hass.states[cover];
+        const live = st && st.attributes.current_position;
+        if (live != null && Number.isFinite(Number(live))) cpts.push({ t: now, v: Number(live) });
+        if (cpts.length) actualLines += `<path class="actual" d="${this._stepPath(cpts, x, yT, W)}"/>`;
       }
     }
 
@@ -430,8 +466,9 @@ class ShadeEngineCard extends HTMLElement {
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
       ${elevArea}${elevLine}${ticks}
       <line class="tick" x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}"/>
-      ${targetLine}
-    </svg>`;
+      ${targetLine}${actualLines}
+    </svg>
+    <div class="legend"><span><i class="target"></i>Target</span><span><i class="actual"></i>Actual</span></div>`;
   }
 
   // -- hold countdown -------------------------------------------------------
