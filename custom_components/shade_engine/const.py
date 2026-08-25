@@ -34,6 +34,7 @@ ATTR_DURATION = "duration"
 SERVICE_HOLD = "hold"
 SERVICE_RELEASE = "release"
 SERVICE_RECONCILE = "reconcile"
+SERVICE_RELOAD = "reload"
 
 GLARE = "glare"
 
