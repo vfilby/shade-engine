@@ -78,7 +78,8 @@ path aborts with `yaml_only`. Removing the YAML removes the entry.
    server, untracked by git) to set modes instead of flipping Adaptive Cover
    switches, then remove Adaptive Cover, its 4 config entries, and the local
    patches.
-5. Roadmap after that: `reload` service, tilt support, hold persistence.
+5. Roadmap after that: tilt support, hold persistence. (`shade_engine.reload`
+   shipped in 0.7.0, 2026-08-24 — YAML edits no longer need a restart.)
 
 ## Live-system context (the thing being replaced)
 
