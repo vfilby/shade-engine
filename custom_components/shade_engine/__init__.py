@@ -25,6 +25,7 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import CoreState, Event, HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
@@ -32,6 +33,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
 )
+from homeassistant.helpers.reload import async_integration_yaml_config
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
@@ -71,6 +73,7 @@ from .const import (
     SERVICE_HOLD,
     SERVICE_RECONCILE,
     SERVICE_RELEASE,
+    SERVICE_RELOAD,
     STARTUP_DELAY,
     signal_zone_update,
 )
@@ -289,24 +292,65 @@ class ShadeEngine:
             for cover in zone.core.covers:
                 self._cover_to_zone[cover] = zone
         self._hold_timers: dict[str, object] = {}
+        self._unsubs: list = []
 
     # -- lifecycle ----------------------------------------------------------
 
     @callback
-    def async_start(self) -> None:
+    def async_start(self, delay: float = STARTUP_DELAY) -> None:
         """Subscribe to everything and schedule the first reconcile."""
-        async_track_state_change_event(self.hass, [SUN_ENTITY], self._sun_changed)
-        async_track_state_change_event(
-            self.hass, list(self._cover_to_zone), self._cover_changed
+        self._unsubs.append(
+            async_track_state_change_event(self.hass, [SUN_ENTITY], self._sun_changed)
         )
-        async_track_time_interval(self.hass, self._tick, TICK_INTERVAL)
+        self._unsubs.append(
+            async_track_state_change_event(
+                self.hass, list(self._cover_to_zone), self._cover_changed
+            )
+        )
+        self._unsubs.append(
+            async_track_time_interval(self.hass, self._tick, TICK_INTERVAL)
+        )
         self._recompute_glare()
 
         async def _initial(_now) -> None:
             _LOGGER.info("Initial reconcile of %d zones", len(self.zones))
             await self._evaluate_all(forced=False)
 
-        async_call_later(self.hass, STARTUP_DELAY, _initial)
+        self._unsubs.append(async_call_later(self.hass, delay, _initial))
+
+    @callback
+    def async_stop(self) -> None:
+        """Unsubscribe from everything; the engine issues no further commands."""
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+        for timer in self._hold_timers.values():
+            timer()
+        self._hold_timers.clear()
+
+    @callback
+    def adopt_runtime(self, previous: ShadeEngine) -> None:
+        """Carry per-zone runtime state over from the engine being replaced.
+
+        Geometry, modes and motion tuning come from the new YAML; what a
+        human or automation did at runtime (chosen mode, control on/off,
+        an active hold, the last commanded positions) survives the reload
+        for every zone that still exists. A mode the new config no longer
+        defines falls back to the zone's default.
+        """
+        for zone_id, zone in self.zones.items():
+            old = previous.zones.get(zone_id)
+            if old is None:
+                continue
+            if old.core.mode in zone.core.modes:
+                zone.core.mode = old.core.mode
+            zone.core.enabled = old.core.enabled
+            zone.core.last_commanded = dict(old.core.last_commanded)
+            zone.core.last_command_ts = old.core.last_command_ts
+            zone.core.hold_until = old.core.hold_until
+            zone.last_decision = old.last_decision
+            if zone.core.hold_active(self._now()):
+                self._schedule_hold_expiry(zone)
 
     # -- inputs -------------------------------------------------------------
 
@@ -478,6 +522,52 @@ class ShadeEngine:
             await self._evaluate(self.zones[zone_id], forced=True)
 
 
+def _build_engine(hass: HomeAssistant, conf: dict) -> ShadeEngine:
+    """Construct zones and an engine from validated YAML config."""
+    zones = {
+        zone_id: Zone(zone_id, zone_conf)
+        for zone_id, zone_conf in conf[CONF_ZONES].items()
+    }
+    return ShadeEngine(hass, zones)
+
+
+async def _async_reload(hass: HomeAssistant) -> None:
+    """Re-read the YAML and swap in a new engine without restarting HA.
+
+    Invalid or missing YAML leaves the running engine untouched and raises,
+    so a typo can't silently take the shades offline. Runtime state (mode,
+    control on/off, holds) carries over per zone; the config entry is
+    reloaded so entities reflect any new zones or mode lists.
+    """
+    config = await async_integration_yaml_config(hass, DOMAIN)
+    if config is None or DOMAIN not in config:
+        raise HomeAssistantError(
+            f"{DOMAIN}: reload aborted, configuration is missing or invalid "
+            "(see log); the running configuration is unchanged"
+        )
+    try:
+        engine = _build_engine(hass, config[DOMAIN])
+    except vol.Invalid as err:
+        raise HomeAssistantError(
+            f"{DOMAIN}: reload aborted, {err}; the running configuration is "
+            "unchanged"
+        ) from err
+
+    previous: ShadeEngine | None = hass.data.get(DOMAIN)
+    if previous is not None:
+        previous.async_stop()
+        engine.adopt_runtime(previous)
+    hass.data[DOMAIN] = engine
+
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    # A reload is a deliberate act: reconcile promptly instead of waiting
+    # out the boot-time settling delay (unless HA is itself still booting).
+    engine.async_start(delay=1 if hass.state is CoreState.running else STARTUP_DELAY)
+    _LOGGER.info("Reloaded configuration: %d zones", len(engine.zones))
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Shade Engine from YAML configuration."""
     # Serve the bundled Lovelace card and register it as a frontend resource
@@ -502,30 +592,32 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         for entry in hass.config_entries.async_entries(DOMAIN):
             hass.async_create_task(hass.config_entries.async_remove(entry.entry_id))
         return True
-    zones = {
-        zone_id: Zone(zone_id, zone_conf)
-        for zone_id, zone_conf in conf[CONF_ZONES].items()
-    }
-    engine = ShadeEngine(hass, zones)
+    engine = _build_engine(hass, conf)
     hass.data[DOMAIN] = engine
 
+    # Services look the engine up per call: a reload replaces hass.data[DOMAIN].
     def _zone_id(call: ServiceCall) -> str:
         zone_id = call.data[ATTR_ZONE]
-        if zone_id not in zones:
+        if zone_id not in hass.data[DOMAIN].zones:
             raise vol.Invalid(f"unknown zone: {zone_id}")
         return zone_id
 
     async def _service_hold(call: ServiceCall) -> None:
-        await engine.async_hold(_zone_id(call), call.data.get(ATTR_DURATION))
+        await hass.data[DOMAIN].async_hold(
+            _zone_id(call), call.data.get(ATTR_DURATION)
+        )
 
     async def _service_release(call: ServiceCall) -> None:
-        await engine.async_release(_zone_id(call))
+        await hass.data[DOMAIN].async_release(_zone_id(call))
 
     async def _service_reconcile(call: ServiceCall) -> None:
         zone_id = call.data.get(ATTR_ZONE)
-        if zone_id is not None and zone_id not in zones:
+        if zone_id is not None and zone_id not in hass.data[DOMAIN].zones:
             raise vol.Invalid(f"unknown zone: {zone_id}")
-        await engine.async_reconcile(zone_id)
+        await hass.data[DOMAIN].async_reconcile(zone_id)
+
+    async def _service_reload(call: ServiceCall) -> None:
+        await _async_reload(hass)
 
     hass.services.async_register(
         DOMAIN,
@@ -550,6 +642,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _service_reconcile,
         schema=vol.Schema({vol.Optional(ATTR_ZONE): cv.slug}),
     )
+    hass.services.async_register(DOMAIN, SERVICE_RELOAD, _service_reload)
 
     # A single config entry imported from YAML is what lets each zone appear
     # as a device on the integration page; the entry itself stores nothing.

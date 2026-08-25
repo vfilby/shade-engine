@@ -51,3 +51,10 @@ reconcile:
       example: kitchen
       selector:
         text:
+
+reload:
+  name: Reload
+  description: >-
+    Re-read the shade_engine YAML and apply it without restarting Home
+    Assistant. Each zone's mode, control switch and any active hold carry
+    over. If the YAML is invalid the running configuration is kept.

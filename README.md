@@ -155,6 +155,7 @@ disabled.)
 | `shade_engine.hold` | start/refresh a hold (`zone`, optional `duration` seconds) |
 | `shade_engine.release` | clear a hold and reconcile — use in automations that must win over a manual move (e.g. privacy close at dusk) |
 | `shade_engine.reconcile` | evaluate immediately, bypassing rate limit (`zone` optional) |
+| `shade_engine.reload` | re-read the `shade_engine:` YAML and apply it without restarting HA. Each zone's mode, control switch and any active hold carry over; invalid YAML is rejected and the running config kept |
 
 ## Dashboard card
 
@@ -312,6 +313,5 @@ python3 -m venv .venv && .venv/bin/pip install pytest
 
 ## Roadmap
 
-- `shade_engine.reload` (YAML reload without restart)
 - Optional tilt support for venetian-style slats
 - Hold persistence across restarts
