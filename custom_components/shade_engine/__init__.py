@@ -293,12 +293,17 @@ class ShadeEngine:
                 self._cover_to_zone[cover] = zone
         self._hold_timers: dict[str, object] = {}
         self._unsubs: list = []
+        self._stopped = False
 
     # -- lifecycle ----------------------------------------------------------
 
     @callback
     def async_start(self, delay: float = STARTUP_DELAY) -> None:
         """Subscribe to everything and schedule the first reconcile."""
+        if self._stopped:
+            # Replaced by a reload before HA finished booting; the deferred
+            # start must not resurrect this engine alongside its successor.
+            return
         self._unsubs.append(
             async_track_state_change_event(self.hass, [SUN_ENTITY], self._sun_changed)
         )
@@ -319,8 +324,14 @@ class ShadeEngine:
         self._unsubs.append(async_call_later(self.hass, delay, _initial))
 
     @callback
+    def track_unsub(self, unsub) -> None:
+        """Register an external subscription to cancel on stop."""
+        self._unsubs.append(unsub)
+
+    @callback
     def async_stop(self) -> None:
         """Unsubscribe from everything; the engine issues no further commands."""
+        self._stopped = True
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
@@ -661,7 +672,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     if hass.state is CoreState.running:
         engine.async_start()
     else:
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start)
+        engine.track_unsub(
+            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start)
+        )
     return True
 
 
