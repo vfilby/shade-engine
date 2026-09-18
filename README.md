@@ -81,7 +81,7 @@ shade_engine:
         deadband: 3           # % change worth moving for
         min_interval: 300     # seconds between commands (deferred, not dropped)
         hold_duration: 3600   # seconds to stand down after a manual move
-        settle: 90            # seconds to ignore reports after our own command
+        settle: 90            # seconds after our own command in which converging reports are ours
 ```
 
 A **zone** is a set of covers that share geometry and move together. Mode
@@ -210,14 +210,19 @@ The card appears in the dashboard card picker as **Shade Engine Card**
   deadband is retried on the next evaluation (every 60 s, and on every sun
   or mode change). The system always converges to the current target.
 - **Humans win.** A cover position that doesn't match the last command
-  (outside the settle window) starts a per-zone hold. The hold is a visible
+  starts a per-zone hold. Inside the `settle` window after the engine's own
+  command, reports that keep converging on the commanded position are
+  treated as that move in progress; a report that moves *away* from it is a
+  human, even seconds after the command. The hold is a visible
   `binary_sensor` with a `hold_until` timestamp; `shade_engine.release`
   clears it. A `forced` evaluation (mode change, reconcile service) bypasses
   rate limiting but **never** bypasses a hold.
 - **Off means off.** `switch.<zone>_shade_control` is a hard gate: while it
-  is off the engine never commands the zone's covers, manual moves are
-  adopted silently (no hold), and nothing — not even a forced reconcile —
-  overrides it. It restores across restarts.
+  is off the engine never commands the zone's covers and nothing — not even
+  a forced reconcile — overrides it. It restores across restarts. Manual
+  moves while it is off still start a hold, so turning control back on
+  inside the hold window stays held; once the hold has expired (or been
+  released) re-enabling reconciles immediately.
 - **Every non-move is explained.** `sensor.<zone>_shade_target` always says
   why the engine last declined to act.
 

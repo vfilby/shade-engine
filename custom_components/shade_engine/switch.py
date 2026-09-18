@@ -29,7 +29,8 @@ class ShadeControlSwitch(SwitchEntity, RestoreEntity):
     """Off means the engine never commands this zone's covers.
 
     Unlike a hold this has no expiry; it survives restarts. Turning it back
-    on reconciles immediately (bypassing the rate limit, never a hold).
+    on reconciles immediately (bypassing the rate limit) unless a manual
+    hold is still running, which is honored until it expires.
     """
 
     _attr_should_poll = False

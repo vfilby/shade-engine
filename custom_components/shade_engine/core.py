@@ -73,6 +73,9 @@ class ZoneCore:
     last_commanded: dict[str, int] = field(default_factory=dict)
     last_command_ts: float | None = None
     hold_until: float | None = None
+    # Most recent position report per cover. Inside the settle window this
+    # is what "converging on the target" is measured against.
+    last_reported: dict[str, int] = field(default_factory=dict)
 
     # -- mode ---------------------------------------------------------------
 
@@ -101,9 +104,16 @@ class ZoneCore:
         """Record a cover's reported position; start a hold on a manual move.
 
         A report is manual when it differs from what we last commanded by
-        more than the deadband and arrives outside the settle window after
-        our own command. Returns True when a hold was started or refreshed.
+        more than the deadband, unless it arrives inside the settle window
+        after our own command *and* is converging on that command: no
+        farther from the commanded position than the previous report was
+        (plus the deadband for jitter). Intermediate positions of our own
+        move converge; a report that moves away from the target inside the
+        window is a human and starts a hold. Returns True when a hold was
+        started or refreshed.
         """
+        previous = self.last_reported.get(cover)
+        self.last_reported[cover] = position
         commanded = self.last_commanded.get(cover)
         if commanded is None:
             # Never commanded this cover (e.g. just started): adopt as baseline.
@@ -114,16 +124,16 @@ class ZoneCore:
         if (
             self.last_command_ts is not None
             and now - self.last_command_ts < self.motion.settle
+            and previous is not None
+            and abs(position - commanded)
+            <= abs(previous - commanded) + self.motion.deadband
         ):
-            # Probably our own move still settling / reporting intermediates.
+            # Our own move still settling / reporting intermediates.
             return False
-        # A human moved this cover: adopt their position and stand down.
+        # A human moved this cover: adopt their position and stand down. The
+        # hold starts even while control is off, so re-enabling inside the
+        # hold window stays held instead of snapping back to the target.
         self.last_commanded[cover] = position
-        if not self.enabled:
-            # Control is off; the engine wasn't going to move anyway, so a
-            # manual move needs no hold. Adopting the baseline above keeps a
-            # later re-enable from misreading this position as manual.
-            return False
         self.start_hold(now)
         return True
 
@@ -177,5 +187,8 @@ class ZoneCore:
 
         for cover in movers:
             self.last_commanded[cover] = target
+            # Where the cover starts from: the settle rule measures each
+            # report's convergence against the one before it.
+            self.last_reported[cover] = current[cover]
         self.last_command_ts = now
         return Decision(REASON_COMMAND, target, movers)

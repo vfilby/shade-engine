@@ -92,7 +92,7 @@ def test_manual_move_starts_hold_and_adopts_position():
     zone = make_zone("open", hold_duration=3600, settle=90)
     zone.evaluate(1000, 100, {"cover.a": 37, "cover.b": 37})
 
-    # Our own command settling: not manual.
+    # Our own command settling: intermediate positions converge on 100.
     assert not zone.report_position("cover.a", 80, now=1050)
 
     # Well after settle, position far from commanded: manual.
@@ -105,6 +105,55 @@ def test_manual_move_starts_hold_and_adopts_position():
     d = zone.evaluate(2000 + 3601, 100, {"cover.a": 20, "cover.b": 100})
     assert d.reason == REASON_COMMAND
     assert d.covers == ["cover.a"]
+
+
+def test_settle_window_accepts_only_converging_reports():
+    # Regression (2026-09-16): a human move made inside the settle window
+    # was swallowed as "our own move settling", so no hold started and the
+    # next tick reverted it. Only reports that keep closing on the target
+    # count as ours.
+    zone = make_zone("track", hold_duration=3600, settle=90)
+    zone.evaluate(1000, 40, {"cover.a": 100, "cover.b": 100})
+
+    # 100 -> 80 -> 60 are intermediates of our move to 40.
+    assert not zone.report_position("cover.a", 80, now=1005)
+    assert not zone.report_position("cover.a", 60, now=1010)
+    assert not zone.hold_active(1011)
+
+    # Inside the window the human drags it back up: farther from 40 than the
+    # previous report. Manual, held, adopted.
+    assert zone.report_position("cover.a", 90, now=1030)
+    assert zone.hold_active(1031)
+    assert zone.last_commanded["cover.a"] == 90
+    d = zone.evaluate(1060, 40, {"cover.a": 90, "cover.b": 40})
+    assert d.reason == REASON_HOLD
+
+
+def test_settle_window_tolerates_jitter_within_deadband():
+    zone = make_zone("open", deadband=3, settle=90)
+    zone.evaluate(1000, 100, {"cover.a": 37, "cover.b": 100})
+    assert not zone.report_position("cover.a", 60, now=1010)
+    # One step back within the deadband is jitter, not a human.
+    assert not zone.report_position("cover.a", 58, now=1011)
+    assert not zone.report_position("cover.a", 100, now=1020)
+    assert not zone.hold_active(1021)
+
+
+def test_instant_target_report_then_manual_move_inside_settle():
+    # Lutron Caseta reports the *target* the instant a command is sent, so
+    # the first report is already "arrived". A human pressing up right after
+    # (still inside the settle window) must start a hold; pressing stop a
+    # few seconds later refreshes it with the real position.
+    zone = make_zone("track", hold_duration=3600, settle=90)
+    zone.evaluate(1000, 38, {"cover.a": 42, "cover.b": 42})
+    assert not zone.report_position("cover.a", 38, now=1001)
+
+    assert zone.report_position("cover.a", 100, now=1034)  # up
+    assert zone.hold_active(1035)
+    assert zone.last_commanded["cover.a"] == 100
+    assert zone.report_position("cover.a", 67, now=1037)  # stop
+    assert zone.last_commanded["cover.a"] == 67
+    assert zone.hold_active(1038)
 
 
 def test_report_matching_command_is_not_manual():
@@ -183,20 +232,34 @@ def test_reenable_converges():
     assert d.covers == ["cover.a", "cover.b"]
 
 
-def test_manual_move_while_disabled_adopts_without_hold():
-    zone = make_zone("open")
+def test_manual_move_while_disabled_holds_and_reenable_respects_it():
+    zone = make_zone("open", hold_duration=3600)
     d = zone.evaluate(1000, 100, {"cover.a": 100, "cover.b": 100})
     assert d.reason == REASON_IN_SYNC
     zone.enabled = False
-    # Human moves a cover while control is off: adopt, but no hold.
-    assert not zone.report_position("cover.a", 25, now=20000)
-    assert not zone.hold_active(20001)
+    # Human moves a cover while control is off: adopted AND held, so turning
+    # control back on inside the hold window does not snap it back.
+    assert zone.report_position("cover.a", 25, now=20000)
+    assert zone.hold_active(20001)
     assert zone.last_commanded["cover.a"] == 25
-    # Re-enabling still converges to the mode target (no hold in the way).
     zone.enabled = True
     d = zone.evaluate(20060, 100, {"cover.a": 25, "cover.b": 100}, forced=True)
+    assert d.reason == REASON_HOLD
+    # Once the hold has expired, re-enabling converges immediately.
+    d = zone.evaluate(20000 + 3601, 100, {"cover.a": 25, "cover.b": 100},
+                      forced=True)
     assert d.reason == REASON_COMMAND
     assert d.covers == ["cover.a"]
+
+
+def test_reenable_after_hold_expired_converges():
+    zone = make_zone("open", hold_duration=600)
+    zone.evaluate(1000, 100, {"cover.a": 100, "cover.b": 100})
+    zone.enabled = False
+    assert zone.report_position("cover.a", 30, now=2000)
+    zone.enabled = True
+    d = zone.evaluate(2700, 100, {"cover.a": 30, "cover.b": 100}, forced=True)
+    assert d.reason == REASON_COMMAND
 
 
 def test_disabled_still_seeds_baselines():
