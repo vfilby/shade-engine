@@ -357,6 +357,7 @@ class ShadeEngine:
                 zone.core.mode = old.core.mode
             zone.core.enabled = old.core.enabled
             zone.core.last_commanded = dict(old.core.last_commanded)
+            zone.core.last_reported = dict(old.core.last_reported)
             zone.core.last_command_ts = old.core.last_command_ts
             zone.core.hold_until = old.core.hold_until
             zone.last_decision = old.last_decision
@@ -481,8 +482,10 @@ class ShadeEngine:
     async def async_set_enabled(self, zone_id: str, enabled: bool) -> None:
         """Turn the engine on or off for one zone.
 
-        Re-enabling reconciles immediately (bypassing the rate limit, but
-        never a hold) so the zone converges without waiting for a tick.
+        Re-enabling reconciles immediately (bypassing the rate limit) so the
+        zone converges without waiting for a tick — unless a hold from a
+        manual move is still running, in which case it stays held until the
+        hold expires or is released.
         """
         zone = self.zones[zone_id]
         if zone.core.enabled == enabled:

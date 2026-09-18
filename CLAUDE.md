@@ -79,7 +79,14 @@ path aborts with `yaml_only`. Removing the YAML removes the entry.
    switches, then remove Adaptive Cover, its 4 config entries, and the local
    patches.
 5. Roadmap after that: tilt support, hold persistence. (`shade_engine.reload`
-   shipped in 0.7.0, 2026-08-24 — YAML edits no longer need a restart.)
+   shipped in 0.7.0, 2026-08-24 — YAML edits no longer need a restart.
+   0.8.0, 2026-09-17: the settle window only swallows reports that converge
+   on the commanded position — a move away inside the window is manual and
+   holds, which fixes manual moves made seconds after a glare command being
+   reverted; manual moves while control is off now hold too, so re-enabling
+   inside the hold stays held. Lutron Caseta reports the *target* position
+   instantly on command, so "up then stop" in the UI looks like a snap-back
+   even when the engine did nothing.)
 
 ## Live-system context (the thing being replaced)
 
