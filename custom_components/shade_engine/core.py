@@ -3,8 +3,9 @@
 No Home Assistant imports — this module is importable and testable anywhere.
 
 A zone owns one mode, a mode resolves to a target position (a constant or a
-clamped passthrough of the calculator's glare position), and ``evaluate``
-decides whether to command the covers right now. Suppressed commands are
+clamped passthrough of the calculator's glare position), each cover clamps
+that target to its own optional limits, and ``evaluate`` decides whether to
+command the covers right now. Suppressed commands are
 always deferred, never dropped: the engine re-evaluates on the next tick and
 converges once the suppressing condition clears.
 """
@@ -43,6 +44,22 @@ class ModeTarget:
 
 
 @dataclass(frozen=True)
+class CoverLimits:
+    """Per-cover clamp applied to the zone target in every mode.
+
+    Lets one cover in a zone stop higher (or lower) than its siblings — a
+    window that must never drop below a plant, say — without a zone or mode
+    of its own. Fixed and dynamic targets alike are clamped.
+    """
+
+    min: int = 0
+    max: int = 100
+
+    def clamp(self, position: int) -> int:
+        return max(self.min, min(self.max, position))
+
+
+@dataclass(frozen=True)
 class MotionConfig:
     """Actuation tuning for one zone. Durations in seconds."""
 
@@ -59,6 +76,9 @@ class Decision:
     reason: str
     target: int | None = None
     covers: list[str] = field(default_factory=list)
+    # cover -> position actually commanded (the zone target after that
+    # cover's limits). Equals ``target`` for covers without limits.
+    positions: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,6 +90,7 @@ class ZoneCore:
     motion: MotionConfig
     mode: str
     enabled: bool = True
+    limits: dict[str, CoverLimits] = field(default_factory=dict)
     last_commanded: dict[str, int] = field(default_factory=dict)
     last_command_ts: float | None = None
     hold_until: float | None = None
@@ -86,6 +107,15 @@ class ZoneCore:
 
     def target(self, glare_position: int) -> int:
         return self.modes[self.mode].resolve(glare_position)
+
+    def cover_target(self, cover: str, target: int) -> int:
+        """The zone target after ``cover``'s own limits."""
+        limits = self.limits.get(cover)
+        return limits.clamp(target) if limits else target
+
+    def cover_targets(self, glare_position: int) -> dict[str, int]:
+        target = self.target(glare_position)
+        return {cover: self.cover_target(cover, target) for cover in self.covers}
 
     # -- hold (manual override) --------------------------------------------
 
@@ -168,12 +198,13 @@ class ZoneCore:
             return Decision(REASON_HOLD)
 
         target = self.target(glare_position)
+        wanted = {cover: self.cover_target(cover, target) for cover in self.covers}
 
         movers = [
             cover
             for cover in self.covers
             if current.get(cover) is not None
-            and abs(current[cover] - target) > self.motion.deadband
+            and abs(current[cover] - wanted[cover]) > self.motion.deadband
         ]
         if not movers:
             return Decision(REASON_IN_SYNC, target)
@@ -186,9 +217,14 @@ class ZoneCore:
             return Decision(REASON_RATE_LIMITED, target)
 
         for cover in movers:
-            self.last_commanded[cover] = target
+            self.last_commanded[cover] = wanted[cover]
             # Where the cover starts from: the settle rule measures each
             # report's convergence against the one before it.
             self.last_reported[cover] = current[cover]
         self.last_command_ts = now
-        return Decision(REASON_COMMAND, target, movers)
+        return Decision(
+            REASON_COMMAND,
+            target,
+            movers,
+            {cover: wanted[cover] for cover in movers},
+        )

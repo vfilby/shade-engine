@@ -11,6 +11,7 @@ from core import (  # noqa: E402
     REASON_HOLD,
     REASON_IN_SYNC,
     REASON_RATE_LIMITED,
+    CoverLimits,
     Decision,
     ModeTarget,
     MotionConfig,
@@ -267,3 +268,94 @@ def test_disabled_still_seeds_baselines():
     zone.enabled = False
     zone.evaluate(1000, 100, {"cover.a": 42, "cover.b": None})
     assert zone.last_commanded == {"cover.a": 42}
+
+
+# -- per-cover limits -------------------------------------------------------
+
+
+def make_limited_zone(mode="open", **motion):
+    # Dining room shape: the door follows the zone, the window never drops
+    # below 50 whatever the mode says.
+    return ZoneCore(
+        covers=["cover.door", "cover.window"],
+        modes={
+            "open": ModeTarget(fixed=100),
+            "night": ModeTarget(fixed=38),
+            "glare": ModeTarget(dynamic=True, min=38),
+        },
+        motion=MotionConfig(**motion),
+        mode=mode,
+        limits={"cover.window": CoverLimits(min=50)},
+    )
+
+
+def test_cover_limits_clamp_fixed_and_dynamic_targets():
+    zone = make_limited_zone("night")
+    assert zone.target(100) == 38
+    assert zone.cover_targets(100) == {"cover.door": 38, "cover.window": 50}
+    zone.set_mode("glare")
+    assert zone.cover_targets(20) == {"cover.door": 38, "cover.window": 50}
+    assert zone.cover_targets(57) == {"cover.door": 57, "cover.window": 57}
+    zone.set_mode("open")
+    assert zone.cover_targets(0) == {"cover.door": 100, "cover.window": 100}
+
+
+def test_cover_limits_command_per_cover_positions():
+    zone = make_limited_zone("night")
+    d = zone.evaluate(1000, 100, {"cover.door": 100, "cover.window": 100})
+    assert d.reason == REASON_COMMAND
+    assert d.target == 38
+    assert d.covers == ["cover.door", "cover.window"]
+    assert d.positions == {"cover.door": 38, "cover.window": 50}
+    assert zone.last_commanded == {"cover.door": 38, "cover.window": 50}
+
+
+def test_cover_limits_in_sync_is_measured_per_cover():
+    zone = make_limited_zone("night")
+    # Window parked at its floor while the zone target is 38: in sync, and
+    # the sitting-higher window is not mistaken for a manual move.
+    d = zone.evaluate(1000, 100, {"cover.door": 38, "cover.window": 50})
+    assert d.reason == REASON_IN_SYNC
+    assert not zone.report_position("cover.window", 50, now=5000)
+    assert not zone.hold_active(5001)
+
+
+def test_cover_limits_only_move_the_cover_that_needs_it():
+    zone = make_limited_zone("night")
+    d = zone.evaluate(1000, 100, {"cover.door": 38, "cover.window": 38})
+    assert d.reason == REASON_COMMAND
+    assert d.covers == ["cover.window"]
+    assert d.positions == {"cover.window": 50}
+
+
+def test_cover_limits_manual_move_below_floor_holds_then_reconverges():
+    zone = make_limited_zone("night", hold_duration=3600, settle=90)
+    zone.evaluate(1000, 100, {"cover.door": 100, "cover.window": 100})
+    # A scene drags the window to 38 hours later: manual, held, adopted.
+    assert zone.report_position("cover.window", 38, now=20000)
+    assert zone.hold_active(20001)
+    d = zone.evaluate(20060, 100, {"cover.door": 38, "cover.window": 38})
+    assert d.reason == REASON_HOLD
+    # Hold expires: the window goes back to its floor, the door stays.
+    d = zone.evaluate(20000 + 3601, 100, {"cover.door": 38, "cover.window": 38})
+    assert d.reason == REASON_COMMAND
+    assert d.positions == {"cover.window": 50}
+
+
+def test_cover_limits_max_caps_open():
+    zone = ZoneCore(
+        covers=["cover.a"],
+        modes={"open": ModeTarget(fixed=100)},
+        motion=MotionConfig(),
+        mode="open",
+        limits={"cover.a": CoverLimits(max=80)},
+    )
+    d = zone.evaluate(1000, 100, {"cover.a": 100})
+    assert d.reason == REASON_COMMAND
+    assert d.positions == {"cover.a": 80}
+
+
+def test_decision_positions_default_to_zone_target_shape():
+    zone = make_zone("open")
+    d = zone.evaluate(1000, 100, {"cover.a": 37, "cover.b": 37})
+    assert d.positions == {"cover.a": 100, "cover.b": 100}
