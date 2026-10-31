@@ -48,6 +48,7 @@ from .const import (
     CONF_DEADBAND,
     CONF_DEFAULT_MODE,
     CONF_DEPTH,
+    CONF_ENTITY,
     CONF_EYE_ZONE,
     CONF_FOV_LEFT,
     CONF_FOV_RIGHT,
@@ -79,6 +80,7 @@ from .const import (
 )
 from .core import (
     REASON_COMMAND,
+    CoverLimits,
     Decision,
     ModeTarget,
     MotionConfig,
@@ -121,6 +123,30 @@ def _mode_target(value):
         clamp = schema(value)
         return ModeTarget(dynamic=True, min=clamp[CONF_MIN], max=clamp[CONF_MAX])
     raise vol.Invalid("mode target must be a position, 'glare', or a mapping")
+
+
+COVER_ENTRY_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_ENTITY): cv.entity_id,
+        vol.Optional(CONF_MIN, default=0): vol.All(int, vol.Range(0, 100)),
+        vol.Optional(CONF_MAX, default=100): vol.All(int, vol.Range(0, 100)),
+    }
+)
+
+
+def _cover_entry(value):
+    """Validate one cover: an entity id, or a mapping with per-cover limits.
+
+    Normalizes to the mapping form so the zone sees one shape.
+    """
+    if isinstance(value, str):
+        return {CONF_ENTITY: cv.entity_id(value), CONF_MIN: 0, CONF_MAX: 100}
+    if isinstance(value, dict):
+        entry = COVER_ENTRY_SCHEMA(value)
+        if entry[CONF_MIN] > entry[CONF_MAX]:
+            raise vol.Invalid(f"{entry[CONF_ENTITY]}: min must not exceed max")
+        return entry
+    raise vol.Invalid("cover must be an entity id or a mapping with 'entity'")
 
 
 def _span(value):
@@ -208,7 +234,9 @@ MOTION_SCHEMA = vol.Schema(
 ZONE_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_NAME): cv.string,
-        vol.Required(CONF_COVERS): vol.All(cv.ensure_list, [cv.entity_id]),
+        vol.Required(CONF_COVERS): vol.All(
+            cv.ensure_list, [_cover_entry], vol.Length(min=1)
+        ),
         vol.Required(CONF_WINDOW): WINDOW_SCHEMA,
         vol.Required(CONF_MODES): vol.All(
             {cv.slug: _mode_target}, vol.Length(min=1)
@@ -266,8 +294,9 @@ class Zone:
                 f"zone {zone_id}: default_mode '{default_mode}' is not a mode"
             )
         motion = conf[CONF_MOTION]
+        covers = conf[CONF_COVERS]
         self.core = ZoneCore(
-            covers=list(conf[CONF_COVERS]),
+            covers=[entry[CONF_ENTITY] for entry in covers],
             modes=modes,
             motion=MotionConfig(
                 deadband=motion[CONF_DEADBAND],
@@ -276,6 +305,11 @@ class Zone:
                 settle=motion[CONF_SETTLE],
             ),
             mode=default_mode,
+            limits={
+                entry[CONF_ENTITY]: CoverLimits(entry[CONF_MIN], entry[CONF_MAX])
+                for entry in covers
+                if entry[CONF_MIN] != 0 or entry[CONF_MAX] != 100
+            },
         )
         self.glare: GlareResult = GlareResult(100, False, 0.0, 0.0)
         self.last_decision: Decision | None = None
@@ -438,19 +472,30 @@ class ShadeEngine:
         previous = zone.last_decision
         zone.last_decision = decision
         if decision.reason == REASON_COMMAND:
-            _LOGGER.info(
-                "[%s] mode=%s -> position %s for %s",
-                zone.zone_id,
-                zone.core.mode,
-                decision.target,
-                ", ".join(decision.covers),
-            )
-            await self.hass.services.async_call(
-                "cover",
-                "set_cover_position",
-                {ATTR_ENTITY_ID: decision.covers, "position": decision.target},
-                blocking=False,
-            )
+            # One call per distinct position: covers with their own limits
+            # may land somewhere other than the zone target.
+            by_position: dict[int, list[str]] = {}
+            for cover in decision.covers:
+                by_position.setdefault(decision.positions[cover], []).append(cover)
+            for position, covers in by_position.items():
+                _LOGGER.info(
+                    "[%s] mode=%s -> position %s for %s%s",
+                    zone.zone_id,
+                    zone.core.mode,
+                    position,
+                    ", ".join(covers),
+                    (
+                        f" (zone target {decision.target})"
+                        if position != decision.target
+                        else ""
+                    ),
+                )
+                await self.hass.services.async_call(
+                    "cover",
+                    "set_cover_position",
+                    {ATTR_ENTITY_ID: covers, "position": position},
+                    blocking=False,
+                )
         else:
             _LOGGER.debug(
                 "[%s] no command: %s (target %s)",

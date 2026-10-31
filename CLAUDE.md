@@ -86,7 +86,11 @@ path aborts with `yaml_only`. Removing the YAML removes the entry.
    reverted; manual moves while control is off now hold too, so re-enabling
    inside the hold stays held. Lutron Caseta reports the *target* position
    instantly on command, so "up then stop" in the UI looks like a snap-back
-   even when the engine did nothing.)
+   even when the engine did nothing. 0.9.0, 2026-10-31: per-cover `min`/`max`
+   limits — a `covers:` entry may be `{entity, min, max}`; the zone target
+   is clamped per cover in every mode, commands go out per distinct
+   position, and `cover_targets` is published on the target sensor. First
+   use: dining window floor 50 while the sliding door keeps the zone's 38.)
 
 ## Live-system context (the thing being replaced)
 

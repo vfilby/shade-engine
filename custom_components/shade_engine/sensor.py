@@ -97,6 +97,8 @@ class TargetSensor(_ZoneSensor):
             # (service calls take the zone id) and show live cover positions.
             "zone_id": self._zone.zone_id,
             "covers": list(core.covers),
+            # Per-cover positions after each cover's own min/max limits.
+            "cover_targets": core.cover_targets(self._zone.glare.position),
             "enabled": core.enabled,
             "mode": core.mode,
             "last_decision": decision.reason if decision else None,

@@ -89,6 +89,27 @@ names are yours; each maps to either a constant position (0–100), the string
 `glare` (pure calculator passthrough), or a mapping with `min`/`max` clamps
 applied to the calculator value.
 
+### Per-cover limits
+
+One cover in a zone can stop short of the others — a window with a plant
+on the sill, a door that must stay passable — without a zone of its own.
+Give that cover a mapping with `min` and/or `max`; plain entity ids keep
+working:
+
+```yaml
+      covers:
+        - cover.dining_room_sliding_door
+        - entity: cover.dining_room_window
+          min: 50               # never below 50, whatever the mode says
+```
+
+The zone still resolves one target from its mode; each limited cover then
+clamps that target to its own range, in **every** mode (constants
+included). Covers that land on different positions get separate commands.
+`sensor.<zone>_shade_target` exposes the per-cover result as
+`cover_targets`, and a limited cover parked at its floor reads as
+`in_sync`, not as a manual move.
+
 ### Eye zone & reflected glare
 
 `protect_depth` protects a strip of floor. If your actual problem is *eyes* —
